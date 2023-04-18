@@ -3,3 +3,6 @@
 % L'atomo wellkown è registrato come PID dell'attore.
 
 -module(wellknown).
+-export([wellknown/0]).
+
+wellknown() -> io:format("## Wellknown\n").

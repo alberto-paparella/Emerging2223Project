@@ -9,3 +9,8 @@
 %   di occupazione dei posteggi.
 
 -module(car).
+-export([main/2]).
+
+main(X, Y) ->
+    % TODO: this message should be sent by detect actor, not main
+    render ! {position, self(), X, Y}.
