@@ -10,9 +10,9 @@ ambient(Grid, W, H) ->
         {isFree, PID, X, Y, Ref} -> 
             case maps:get({X, Y}, Grid) of
                 none -> PID ! {status, Ref, false};
-                {_, Boolean} -> PID ! {status, Ref, Boolean},
-                ambient(Grid, W, H)
-            end;
+                {_, Boolean} -> PID ! {status, Ref, Boolean}
+            end,
+            ambient(Grid, W, H);
         {park, PID, X, Y, Ref} -> 
             % TODO: gestire parcheggi contemporanei killando PID
             UpdatedGrid = maps:update({X, Y}, {PID, true}, Grid),

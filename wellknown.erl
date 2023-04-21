@@ -3,6 +3,20 @@
 % L'atomo wellkown è registrato come PID dell'attore.
 
 -module(wellknown).
--export([wellknown/0]).
+-export([wellknown/1]).
 
-wellknown() -> io:format("## Wellknown\n").
+wellknown(PidList) when PidList /= [] -> 
+    receive
+        {getFriends, PID1, PID2, Ref} ->
+            % send to PID1 PidList
+            PID1 ! {myFriends, PidList, Ref},
+            % check if PID2 is in PidList (add new members)
+            case lists:member(PID2, PidList) of
+                % if true, call wellknown on the same PidList
+                true -> wellknown(PidList);
+                % if fase, call wellknown with [PID2 | PidList]
+                false -> wellknown([PID2 | PidList])
+            end
+    end.
+
+% TODO: delete car if it is killed
