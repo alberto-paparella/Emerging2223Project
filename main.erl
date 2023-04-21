@@ -19,12 +19,12 @@ main() ->
     Grid = maps:from_list([{{X,Y}, none} || X <- lists:seq(1, Width), Y <- lists:seq(1, Height)]),
 
     % spawning and registering ambient actor
-    AmbientPid = spawn(ambient, ambient, [Grid, 5, 5]),
+    AmbientPid = spawn(ambient, ambient, [Grid, Width, Height]),
     register(ambient, AmbientPid),
     io:format("# Ambient actor created and registered to 'ambient' atom with pid ~p\n", [AmbientPid]),
 
     % spawning and registering wellknown actor
-    WellknownPid = spawn(wellknown, wellknown, []),
+    WellknownPid = spawn(wellknown, wellknown, [[]]),
     register(wellknown, WellknownPid),
     io:format("# Wellknown actor created and registered to 'wellknown' atom with pid ~p\n", [WellknownPid]),
     
@@ -33,20 +33,45 @@ main() ->
     register(render, RenderPid),
     io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [RenderPid]),
     
-    % main loop
-    loop(3000, Width, Height).
+    % spawning default number of cars
+    NumberOfCars = 5,
+    createCars(NumberOfCars, [], Width, Height, 3000).
 
-% loop that spawns and kills cars each N seconds
-loop(N, Width, Height) -> 
+% create cars recursively and keep trace of their Pids
+createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars > 0 ->
+    % spawn a car
+    % TODO: what if position is already occupied?
+    NewX = rand:uniform(Width),
+    NewY = rand:uniform(Height),
+    CarPid = spawn(car, main, [NewX, NewY]),
+    NewCarsPids = [CarPid | CarsPids],
+    createCars(NumberOfCars-1, NewCarsPids, Width, Height, SleepTime);
+% once finished call main loop
+createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars =:= 0 -> 
+    loop(SleepTime, CarsPids, Width, Height).
+
+% main loop that spawns and kills cars each N seconds
+loop(N, CarsPids, Width, Height) -> 
+    io:format("Cars: ~p\n", [CarsPids]),
     sleep(N),
     % spawn a car
     % TODO: what if position is already occupied?
     NewX = rand:uniform(Width),
     NewY = rand:uniform(Height),
     CarPid = spawn(car, main, [NewX, NewY]),
+    NewCarsPids = [CarPid | CarsPids],
     sleep(N),
-    % kill a car
-    loop(N, Width, Height).
+    % choose the index of one car to kill 
+    CarIndexToKill = rand:uniform(length(NewCarsPids) - 1),
+    % kill it
+    killCars(CarIndexToKill, NewCarsPids, N, Width, Height).
+
+% function that kills the selected car and calls the loop back
+killCars(CarIndexToKill, CarsPids, N, Width, Height) ->
+    {Left, [PidToKill|Right]} = lists:split(CarIndexToKill, CarsPids),
+    % TODO: Kill PidToKill
+    NewCarsPids = Left ++ Right,
+    loop(N, NewCarsPids, Width, Height).
 
 % sleep function
 sleep(N) -> receive after N -> ok end.
