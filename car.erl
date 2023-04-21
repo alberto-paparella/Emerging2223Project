@@ -13,4 +13,27 @@
 
 main(X, Y) ->
     % TODO: this message should be sent by detect actor, not main
-    render ! {position, self(), X, Y}.
+    render ! {position, self(), X, Y},
+    
+    StatePid = spawn_link(?MODULE, state, [0,0,[]]),
+    FriendshipPid = spawn_link(?MODULE, friendship, [[], StatePid]),
+    DetectPid = spawn_link(?MODULE, state, []).
+
+% if car hasn't any friends, ask wellknown for friends
+friendship(FriendsList, StatePid) when FriendsList =:= [] -> 
+    Ref = make_ref(),
+    wellknown ! {getFriends, self(), StatePid, Ref},
+    receive 
+        {myFriends, PidList, Ref} ->
+            % TODO: choose 5 Pids from PidList that are different from self()
+            io:format("PidList: ~p~n", [PidList]),
+            friendship(PidList, StatePid)
+    end;
+% if friends are > 0 and < 5 then ask for new friends to friends
+friendship(FriendsList, StatePid) when length(FriendsList) < 5 -> io:format("");
+% do nothing
+friendship(FriendsList, StatePId) -> io:format("").
+
+state(GoalX, GoalY, Grid) -> io:format("").
+
+detect() -> io:format("").
