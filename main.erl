@@ -43,7 +43,7 @@ createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars >
     % TODO: what if position is already occupied?
     NewX = rand:uniform(Width),
     NewY = rand:uniform(Height),
-    CarPid = spawn(car, main, [NewX, NewY]),
+    CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
     NewCarsPids = [CarPid | CarsPids],
     createCars(NumberOfCars-1, NewCarsPids, Width, Height, SleepTime);
 % once finished call main loop
@@ -58,13 +58,14 @@ loop(N, CarsPids, Width, Height) ->
     % TODO: what if position is already occupied?
     NewX = rand:uniform(Width),
     NewY = rand:uniform(Height),
-    CarPid = spawn(car, main, [NewX, NewY]),
+    CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
     NewCarsPids = [CarPid | CarsPids],
     sleep(N),
     % choose the index of one car to kill 
     CarIndexToKill = rand:uniform(length(NewCarsPids) - 1),
     % kill it
-    killCars(CarIndexToKill, NewCarsPids, N, Width, Height).
+    loop(N, NewCarsPids, Width, Height).
+    %killCars(CarIndexToKill, NewCarsPids, N, Width, Height).
 
 % function that kills the selected car and calls the loop back
 killCars(CarIndexToKill, CarsPids, N, Width, Height) ->

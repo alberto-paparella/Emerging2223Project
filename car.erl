@@ -9,15 +9,16 @@
 %   di occupazione dei posteggi.
 
 -module(car).
--export([main/2]).
+-export([main/4]).
+-compile(export_all).
 
-main(X, Y) ->
+main(X, Y, GridWidth, GridHeight) ->
     % TODO: this message should be sent by detect actor, not main
     render ! {position, self(), X, Y},
-    
-    StatePid = spawn_link(?MODULE, state, [0,0,[]]),
+    Grid = maps:from_list([{{N,M}, none} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
+    StatePid = spawn_link(?MODULE, state, [Grid, X, Y]),
     FriendshipPid = spawn_link(?MODULE, friendship, [[], StatePid]),
-    DetectPid = spawn_link(?MODULE, state, []).
+    DetectPid = spawn_link(?MODULE, detect, [StatePid, GridWidth, GridHeight]).
 
 % if car hasn't any friends, ask wellknown for friends
 friendship(FriendsList, StatePid) when FriendsList =:= [] -> 
@@ -30,10 +31,76 @@ friendship(FriendsList, StatePid) when FriendsList =:= [] ->
             friendship(PidList, StatePid)
     end;
 % if friends are > 0 and < 5 then ask for new friends to friends
-friendship(FriendsList, StatePid) when length(FriendsList) < 5 -> io:format("");
+friendship(FriendsList, StatePid) when length(FriendsList) < 5 -> io:format("").
 % do nothing
-friendship(FriendsList, StatePId) -> io:format("").
+friendship(FriendsList, StatePid, Grid) -> io:format("").
 
-state(GoalX, GoalY, Grid) -> io:format("").
+state(Grid, X, Y) ->
+    NewGrid = maps:update({X,Y}, {self(), true}, Grid),
+    state(NewGrid, {X, Y}).
 
-detect() -> io:format("").
+state(Grid, {X, Y}) -> 
+    receive
+        {isGoalFree, PID, NewGoalX, NewGoalY, Ref} -> case maps:get({NewGoalX, NewGoalY}, Grid) of
+                none -> PID ! {goalFree, true, Ref};
+                {_, Boolean} -> PID ! {goalFree, Boolean, Ref}
+            end,
+            state(Grid, {X, Y});
+        {myPosition, PID, Ref} -> 
+            PID ! {myPos, X, Y, Ref},
+            state(Grid, {X, Y});
+        {updateMyPosition, NewX, NewY, _} -> 
+            NewGrid = maps:update({X,Y}, none, Grid),
+            NewGrid1 = maps:update({NewX,NewY}, {self(), true}, NewGrid),
+            state(NewGrid1, {X, Y})
+    end.
+
+detect(StatePid, GridWidth, GridHeight) -> 
+    NewGoalX = rand:uniform(GridWidth),
+    NewGoalY = rand:uniform(GridHeight),
+    Ref = make_ref(),
+    StatePid ! {isGoalFree, self(), NewGoalX, NewGoalY, Ref},
+    receive
+        {goalFree, Boolean, Ref} -> case Boolean of
+            true -> move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight);
+            false -> detect(StatePid, GridWidth, GridHeight)
+        end
+    end,
+    detect(StatePid, GridWidth, GridHeight).
+
+move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight) -> 
+    Ref = make_ref(),
+    StatePid ! {myPosition, self(), Ref},
+    receive 
+        {myPos, X, Y, Ref} -> 
+            case X =:= NewGoalX of
+                true -> 
+                    NewY = (GridHeight - lists:max([Y, NewGoalY])) + lists:min([Y, NewGoalY]),
+                    YPosRef = make_ref(),
+                    StatePid ! {updateMyPosition, X, NewY, YPosRef};
+                false -> 
+                    case Y =:= NewGoalY of
+                        true -> 
+                            NewX = (GridWidth - lists:max([X, NewGoalX])) + lists:min([X, NewGoalX]),
+                            XPosRef = make_ref(),
+                            StatePid ! {updateMyPosition, NewX, Y, XPosRef};
+                        false -> 
+                            Axis = rand:uniform(2),
+                            case Axis of 
+                                1 -> 
+                                    ANewX = (GridWidth - lists:max([X, NewGoalX])) + lists:min([X, NewGoalX]),
+                                    PosRef = make_ref(),
+                                    StatePid ! {updateMyPosition, ANewX, Y, PosRef};
+                                2 ->
+                                    ANewY = (GridHeight - lists:max([Y, NewGoalY])) + lists:min([Y, NewGoalY]),
+                                    PosRef = make_ref(),
+                                    StatePid ! {updateMyPosition, X, ANewY, PosRef}
+                            end
+                    end
+            end
+    end,
+    move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight).
+
+
+
+
