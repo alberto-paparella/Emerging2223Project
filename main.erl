@@ -29,7 +29,7 @@ main() ->
     io:format("# Wellknown actor created and registered to 'wellknown' atom with pid ~p\n", [WellknownPid]),
     
     % spawning and registering render actor
-    RenderPid = spawn(render, render, [Grid, Width, Height]),
+    RenderPid = spawn(render, render, [#{}, Width, Height]),
     register(render, RenderPid),
     io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [RenderPid]),
     
@@ -64,6 +64,7 @@ loop(N, CarsPids, Width, Height) ->
     % choose the index of one car to kill 
     CarIndexToKill = rand:uniform(length(NewCarsPids) - 1),
     % kill it
+    render ! {draw},
     loop(N, NewCarsPids, Width, Height).
     %killCars(CarIndexToKill, NewCarsPids, N, Width, Height).
 

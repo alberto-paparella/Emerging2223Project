@@ -13,10 +13,12 @@
 -compile(export_all).
 
 main(X, Y, GridWidth, GridHeight) ->
-    % TODO: this message should be sent by detect actor, not main
-    render ! {position, self(), X, Y},
     Grid = maps:from_list([{{N,M}, none} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
     StatePid = spawn_link(?MODULE, state, [Grid, X, Y]),
+
+    % TODO: this message should be sent by detect actor, not main
+    render ! {position, StatePid, X, Y},
+
     FriendshipPid = spawn_link(?MODULE, friendship, [[], StatePid]),
     DetectPid = spawn_link(?MODULE, detect, [StatePid, GridWidth, GridHeight]).
 
@@ -68,39 +70,87 @@ detect(StatePid, GridWidth, GridHeight) ->
     end,
     detect(StatePid, GridWidth, GridHeight).
 
+detect(StatePid, GoalX, GoalY, GridWidth, GridHeight) ->
+    % sleep function
+    sleep(2000),
+    move(GoalX, GoalY, StatePid, GridWidth, GridHeight),
+    Ref = make_ref(),
+    StatePid ! {isGoalFree, self(), GoalX, GoalY, Ref},
+    receive
+        {goalFree, Boolean, Ref} -> case Boolean of
+            true -> detect(StatePid, GoalX, GoalY, GridWidth, GridHeight);
+            false -> detect(StatePid, GridWidth, GridHeight)
+        end
+    end.
+    
+
 move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight) -> 
     Ref = make_ref(),
     StatePid ! {myPosition, self(), Ref},
     receive 
         {myPos, X, Y, Ref} -> 
             case X =:= NewGoalX of
-                true -> 
-                    NewY = (GridHeight - lists:max([Y, NewGoalY])) + lists:min([Y, NewGoalY]),
-                    YPosRef = make_ref(),
-                    StatePid ! {updateMyPosition, X, NewY, YPosRef};
+                true -> moveY(Y, NewGoalY, X, GridHeight, StatePid);
                 false -> 
                     case Y =:= NewGoalY of
-                        true -> 
-                            NewX = (GridWidth - lists:max([X, NewGoalX])) + lists:min([X, NewGoalX]),
-                            XPosRef = make_ref(),
-                            StatePid ! {updateMyPosition, NewX, Y, XPosRef};
+                        true -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
                         false -> 
                             Axis = rand:uniform(2),
                             case Axis of 
-                                1 -> 
-                                    ANewX = (GridWidth - lists:max([X, NewGoalX])) + lists:min([X, NewGoalX]),
-                                    PosRef = make_ref(),
-                                    StatePid ! {updateMyPosition, ANewX, Y, PosRef};
-                                2 ->
-                                    ANewY = (GridHeight - lists:max([Y, NewGoalY])) + lists:min([Y, NewGoalY]),
-                                    PosRef = make_ref(),
-                                    StatePid ! {updateMyPosition, X, ANewY, PosRef}
+                                1 -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
+                                2 -> moveY(Y, NewGoalY, X, GridHeight, StatePid)
                             end
                     end
             end
     end,
     move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight).
 
+moveX(X, NewGoalX, Y, GridWidth, StatePid) -> 
+    case X < NewGoalX of
+        true -> case abs(X - NewGoalX) < (GridWidth - lists:max([X, NewGoalX]) + lists:min([X, NewGoalX])) of
+                true -> NewX = (X + 1) rem GridWidth;
+                false -> NewX = (X - 1) rem GridWidth
+            end;
+        false -> case abs(X - NewGoalX) < (GridWidth - lists:max([X, NewGoalX]) + lists:min([X, NewGoalX])) of
+                true -> NewX = (X - 1) rem GridWidth;
+                false -> NewX = (X + 1) rem GridWidth
+            end
+    end,
+    case NewX =:= 0 of
+        true -> 
+            UltimateX = 5,
+            XPosRef = make_ref(),
+            StatePid ! {updateMyPosition, UltimateX, Y, XPosRef};
+        false ->
+            UltimateX = NewX,
+            XPosRef = make_ref(),
+            StatePid ! {updateMyPosition, UltimateX, Y, XPosRef}
+    end,
+    render ! {position, StatePid, UltimateX, Y}.
+
+moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
+    case Y < NewGoalY of
+        true -> case abs(Y - NewGoalY) < (GridHeight - lists:max([Y, NewGoalY]) + lists:min([Y, NewGoalY])) of
+                    true -> NewY = (Y + 1) rem GridHeight;
+                    false -> NewY = (Y - 1) rem GridHeight
+                end;
+        false -> case abs(Y - NewGoalY) < (GridHeight - lists:max([Y, NewGoalY]) + lists:min([Y, NewGoalY])) of
+                    true -> NewY = (Y - 1) rem GridHeight;
+                    false -> NewY = (Y + 1) rem GridHeight
+                end
+    end,
+    case NewY =:= 0 of
+        true -> 
+            UltimateY = 5,
+            YPosRef = make_ref(),
+            StatePid ! {updateMyPosition, X, UltimateY, YPosRef};
+        false ->
+            UltimateY = NewY,
+            YPosRef = make_ref(),
+            StatePid ! {updateMyPosition, X, UltimateY, YPosRef}
+    end,
+    render ! {position, StatePid, X, UltimateY}.
 
 
-
+% sleep function
+sleep(N) -> receive after N -> ok end.
