@@ -13,7 +13,7 @@
 -compile(export_all).
 
 main(X, Y, GridWidth, GridHeight) ->
-    Grid = maps:from_list([{{N,M}, none} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
+    Grid = maps:from_list([{{N,M}, true} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
     StatePid = spawn_link(?MODULE, state, [Grid, X, Y]),
 
     % TODO: this message should be sent by detect actor, not main
@@ -38,23 +38,26 @@ friendship(FriendsList, StatePid) when length(FriendsList) < 5 -> io:format("").
 friendship(FriendsList, StatePid, Grid) -> io:format("").
 
 state(Grid, X, Y) ->
-    NewGrid = maps:update({X,Y}, {self(), true}, Grid),
+    NewGrid = maps:update({X,Y}, true, Grid),
     state(NewGrid, {X, Y}).
 
 state(Grid, {X, Y}) -> 
     receive
         {isGoalFree, PID, NewGoalX, NewGoalY, Ref} -> case maps:get({NewGoalX, NewGoalY}, Grid) of
-                none -> PID ! {goalFree, true, Ref};
-                {_, Boolean} -> PID ! {goalFree, Boolean, Ref}
+                true -> PID ! {goalFree, true, Ref};
+                Boolean -> PID ! {goalFree, Boolean, Ref}
             end,
             state(Grid, {X, Y});
         {myPosition, PID, Ref} -> 
             PID ! {myPos, X, Y, Ref},
             state(Grid, {X, Y});
         {updateMyPosition, NewX, NewY, _} -> 
-            NewGrid = maps:update({X,Y}, none, Grid),
-            NewGrid1 = maps:update({NewX,NewY}, {self(), true}, NewGrid),
-            state(NewGrid1, {X, Y})
+            NewGrid = maps:update({X,Y}, true, Grid),
+            NewGrid1 = maps:update({NewX,NewY}, true, NewGrid),
+            state(NewGrid1, {NewX, NewY});
+        {statusUpdate, StatusX, StatusY, IsFree} -> 
+            NewGrid = maps:update({StatusX, StatusY}, IsFree, Grid),
+            state(NewGrid, {X, Y})
     end.
 
 detect(StatePid, GridWidth, GridHeight) -> 
@@ -64,11 +67,12 @@ detect(StatePid, GridWidth, GridHeight) ->
     StatePid ! {isGoalFree, self(), NewGoalX, NewGoalY, Ref},
     receive
         {goalFree, Boolean, Ref} -> case Boolean of
-            true -> move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight);
+            true -> 
+                render ! {target, StatePid, NewGoalX, NewGoalY},
+                move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight);
             false -> detect(StatePid, GridWidth, GridHeight)
         end
-    end,
-    detect(StatePid, GridWidth, GridHeight).
+    end.
 
 detect(StatePid, GoalX, GoalY, GridWidth, GridHeight) ->
     % sleep function
@@ -90,20 +94,30 @@ move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight) ->
     receive 
         {myPos, X, Y, Ref} -> 
             case X =:= NewGoalX of
-                true -> moveY(Y, NewGoalY, X, GridHeight, StatePid);
-                false -> 
-                    case Y =:= NewGoalY of
-                        true -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
-                        false -> 
-                            Axis = rand:uniform(2),
-                            case Axis of 
-                                1 -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
-                                2 -> moveY(Y, NewGoalY, X, GridHeight, StatePid)
-                            end
-                    end
+                true -> case Y =:= NewGoalY of 
+                            true -> 
+                                ParkRef = make_ref(),
+                                ambient ! {park, StatePid, NewGoalX, NewGoalY, ParkRef},
+                                IsFreeRef = make_ref(),
+                                ambient ! {isFree, StatePid, X, Y, IsFreeRef},
+                                receive
+                                    {status, _, IsFree} -> StatePid ! {statusUpdate, X, Y, IsFree}
+                                end;
+                                % TODO: handle parking
+                            false -> moveY(Y, NewGoalY, X, GridHeight, StatePid)
+                        end;
+                false -> case Y =:= NewGoalY of 
+                            true -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
+                            false -> 
+                                Axis = rand:uniform(2),
+                                case Axis of 
+                                    1 -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
+                                    2 -> moveY(Y, NewGoalY, X, GridHeight, StatePid)
+                                end
+                        end
             end
-    end,
-    move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight).
+    end.
+    %move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight).
 
 moveX(X, NewGoalX, Y, GridWidth, StatePid) -> 
     case X < NewGoalX of
@@ -126,7 +140,12 @@ moveX(X, NewGoalX, Y, GridWidth, StatePid) ->
             XPosRef = make_ref(),
             StatePid ! {updateMyPosition, UltimateX, Y, XPosRef}
     end,
-    render ! {position, StatePid, UltimateX, Y}.
+    render ! {position, StatePid, UltimateX, Y},
+    IsFreeRef = make_ref(),
+    ambient ! {isFree, StatePid, UltimateX, Y, IsFreeRef},
+    receive
+        {status, _, IsFree} -> StatePid ! {statusUpdate, UltimateX, Y, IsFree}
+    end.
 
 moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
     case Y < NewGoalY of
@@ -149,7 +168,12 @@ moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
             YPosRef = make_ref(),
             StatePid ! {updateMyPosition, X, UltimateY, YPosRef}
     end,
-    render ! {position, StatePid, X, UltimateY}.
+    render ! {position, StatePid, X, UltimateY},
+    IsFreeRef = make_ref(),
+    ambient ! {isFree, StatePid, X, UltimateY, IsFreeRef},
+    receive
+        {status, _, IsFree} -> StatePid ! {statusUpdate, X, UltimateY, IsFree}
+    end.
 
 
 % sleep function

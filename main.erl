@@ -34,7 +34,7 @@ main() ->
     io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [RenderPid]),
     
     % spawning default number of cars
-    NumberOfCars = 5,
+    NumberOfCars = 2,
     createCars(NumberOfCars, [], Width, Height, 3000).
 
 % create cars recursively and keep trace of their Pids
@@ -55,17 +55,18 @@ loop(N, CarsPids, Width, Height) ->
     io:format("Cars: ~p\n", [CarsPids]),
     sleep(N),
     % spawn a car
-    % TODO: what if position is already occupied?
-    NewX = rand:uniform(Width),
-    NewY = rand:uniform(Height),
-    CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
-    NewCarsPids = [CarPid | CarsPids],
-    sleep(N),
+    %TODO: what if position is already occupied?
+    % NewX = rand:uniform(Width),
+    % NewY = rand:uniform(Height),
+    % CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
+    % NewCarsPids = [CarPid | CarsPids],
+    %sleep(N),
     % choose the index of one car to kill 
-    CarIndexToKill = rand:uniform(length(NewCarsPids) - 1),
+    % CarIndexToKill = rand:uniform(length(NewCarsPids) - 1),
     % kill it
     render ! {draw},
-    loop(N, NewCarsPids, Width, Height).
+    loop(N, CarsPids, Width, Height).
+    % loop(N, CarsPids, Width, Height).
     %killCars(CarIndexToKill, NewCarsPids, N, Width, Height).
 
 % function that kills the selected car and calls the loop back

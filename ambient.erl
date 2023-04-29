@@ -16,6 +16,7 @@ ambient(Grid, W, H) ->
         {park, PID, X, Y, Ref} -> 
             % TODO: gestire parcheggi contemporanei killando PID
             UpdatedGrid = maps:update({X, Y}, {PID, false}, Grid),
+            render ! {parked, PID, X, Y, true},
+            % receive {leave, PID, Ref} ->
             ambient(UpdatedGrid, W, H)
-          % TODO: implementare {leave, PID, Ref}
     end.
