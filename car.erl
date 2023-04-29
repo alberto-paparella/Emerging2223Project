@@ -69,7 +69,7 @@ detect(StatePid, GridWidth, GridHeight) ->
         {goalFree, Boolean, Ref} -> case Boolean of
             true -> 
                 render ! {target, StatePid, NewGoalX, NewGoalY},
-                move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight);
+                detect(StatePid, NewGoalX, NewGoalY, GridWidth, GridHeight);
             false -> detect(StatePid, GridWidth, GridHeight)
         end
     end.
@@ -142,9 +142,9 @@ moveX(X, NewGoalX, Y, GridWidth, StatePid) ->
     end,
     render ! {position, StatePid, UltimateX, Y},
     IsFreeRef = make_ref(),
-    ambient ! {isFree, StatePid, UltimateX, Y, IsFreeRef},
+    ambient ! {isFree, self(), UltimateX, Y, IsFreeRef},
     receive
-        {status, _, IsFree} -> StatePid ! {statusUpdate, UltimateX, Y, IsFree}
+        {status, IsFreeRef, IsFree} -> StatePid ! {statusUpdate, UltimateX, Y, IsFree}
     end.
 
 moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
@@ -170,9 +170,9 @@ moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
     end,
     render ! {position, StatePid, X, UltimateY},
     IsFreeRef = make_ref(),
-    ambient ! {isFree, StatePid, X, UltimateY, IsFreeRef},
+    ambient ! {isFree, self(), X, UltimateY, IsFreeRef},
     receive
-        {status, _, IsFree} -> StatePid ! {statusUpdate, X, UltimateY, IsFree}
+        {status, IsFreeRef, IsFree} -> StatePid ! {statusUpdate, X, UltimateY, IsFree}
     end.
 
 
