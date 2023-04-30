@@ -14,8 +14,8 @@ main() ->
     io:format("# Main started\n"),
     
     % initialize grid
-    Width = 5,
-    Height = 5,
+    Width = 20,
+    Height = 20,
     Grid = maps:from_list([{{X,Y}, none} || X <- lists:seq(1, Width), Y <- lists:seq(1, Height)]),
 
     % spawning and registering ambient actor
@@ -23,10 +23,10 @@ main() ->
     register(ambient, AmbientPid),
     io:format("# Ambient actor created and registered to 'ambient' atom with pid ~p\n", [AmbientPid]),
 
-    % spawning and registering wellknown actor
-    WellknownPid = spawn(wellknown, wellknown, [[]]),
-    register(wellknown, WellknownPid),
-    io:format("# Wellknown actor created and registered to 'wellknown' atom with pid ~p\n", [WellknownPid]),
+    % spawning and registering wellKnown actor
+    WellknownPid = spawn(wellKnown, wellKnown, [[]]),
+    register(wellKnown, WellknownPid),
+    io:format("# Wellknown actor created and registered to 'wellKnown' atom with pid ~p\n", [WellknownPid]),
     
     % spawning and registering render actor
     RenderPid = spawn(render, render, [#{}, Width, Height]),
@@ -34,7 +34,7 @@ main() ->
     io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [RenderPid]),
     
     % spawning default number of cars
-    NumberOfCars = 2,
+    NumberOfCars = 10,
     createCars(NumberOfCars, [], Width, Height, 3000).
 
 % create cars recursively and keep trace of their Pids

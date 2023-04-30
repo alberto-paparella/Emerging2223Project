@@ -41,12 +41,10 @@ main(X, Y, GridWidth, GridHeight) ->
 friendship(state, FRIENDSLIST) when FRIENDSLIST =:= [] ->
     Ref = make_ref(),
     % Per inizializzare la lista di amici, la richiesta getFriends viene inviata all'attore wellKnown.
-    wellknown ! {getFriends, self(), state, Ref},
+    wellKnown ! {getFriends, self(), state, Ref},
     receive 
         {myFriends, PIDSLIST, Ref} ->
             newFRIENDSLIST = makeFriends(state, FRIENDSLIST, PIDSLIST),
-            io:format("Car (state): ~p~n", [state]),
-            io:format("FRIENDSLIST: ~p~n", [newFRIENDSLIST]),
             friendship(state, newFRIENDSLIST)            
     end;
 
@@ -71,6 +69,10 @@ friendship(state, FRIENDSLIST) when length(FRIENDSLIST) < 5 ->
 
 % Default behaviour
 friendship(state, FRIENDSLIST) ->
+    % DEBUG
+    io:format("Car (state): ~p~n", [state]),
+    io:format("FRIENDSLIST: ~p~n", [newFRIENDSLIST]),
+    %
     receive
         {getFriends, PID1, PID2, Ref} ->
             PID1 ! {myFriends, FRIENDSLIST, Ref},
