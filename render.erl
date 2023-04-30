@@ -1,4 +1,16 @@
 % Un attore "render" che permette il debugging raccogliendo informazioni dagli altri attori per poterle visualizzare.
+% Per permettere il debugging, dovrete implementare un ultimo attore "render", il cui PID viene registrato associandolo
+% all'atomo rendere che si occupa di rappresentare lo stato del sistema di attori.
+% In particolare il "render" visualizza la griglia, indicando la posizione di ogni automobile, il suo stato (parcheggiata o meno),
+% quale sia il posteggio obiettivo di ogni automobile e la lista di amici di ogni automobile.
+% Queste informazioni vanno comunicate all'attore render dagli altri attori tramite i seguenti messaggi:
+%  - {position, PID, X, Y} la posizione dell'automobile, inviato dall'attore "detect"
+%  - {target, PID, X, Y} la posizione del posteggio obiettivo dell'automobile, inviato dall'attore "detect"
+%  - {parked, PID, X, Y, IsParked} inviata dall'attore "ambient" quando l'auto parcheggia/riparte
+%  - {friends, PID, PIDLIST} inviata dall'attore "friendship" quando cambia la lista di amici
+%  - In tutti i messaggi qui sopra si deve utilizzare lo stesso PID per identificare le automobili (es. il PID dell'attore "state" o quello dell'attore "main").
+% La resa delle informazioni è liberamente implementabile a vostro gusto.
+% Per esempio, potrebbe essere un'"immagine" in ASCII art seguita da una leggenda, rigenerata e mostrata a intervalli regolari.
 
 -module(render).
 -export([render/3]).

@@ -1,5 +1,5 @@
 % Ogni automobile è rappresentata dal seguente sotto-sistema di attori:
-% - Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro
+% - Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro.
 % - Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori, integrandone di nuovi nel caso in cui il numero scenda.
 % - Un attore "state" che si preoccupa di mantenere il modello interno dell'ambiente e le coordinate del posteggio obiettivo.
 %   In pratica l'attore registra per ogni cella l'ultima informazione giunta in suo possesso (posteggio libero/occupato/nessuna informazione)
@@ -9,22 +9,17 @@
 %   di occupazione dei posteggi.
 
 -module(car).
--export([main/4]).
--compile(export_all).
+-export([main/4, friendship/2, detect/3, state/4]).
 
 %%% main
+% Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro.
 
+% Inizializzazione
 main(X, Y, GridWidth, GridHeight) ->
-    Grid = maps:from_list([{{N,M}, true} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
-    StatePid = spawn_link(?MODULE, state, [Grid, X, Y]),
-
-    % TODO: this message should be sent by detect actor, not main
-    render ! {position, StatePid, X, Y},
-
-    % Lancio l'attore friendship e registro l'atomo `friendship` come PID dell'attore
-    FriendshipPid = spawn_link(?MODULE, friendship, [StatePid, []]),
-    
-    DetectPid = spawn_link(?MODULE, detect, [StatePid, GridWidth, GridHeight]).
+    StatePid = spawn_link(?MODULE, state, [X, Y, GridWidth, GridHeight]),
+    spawn_link(?MODULE, friendship, [StatePid, []]),    
+    spawn_link(?MODULE, detect, [StatePid, GridWidth, GridHeight]).
+    % TODO: ri-creazione degli attori nel caso di fallimento di uno di loro (modello dei fallimenti).
 
 %%% friendship
 % Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori, integrandone di nuovi nel caso in cui il numero scenda.
@@ -118,90 +113,122 @@ getFriends(StatePid, FRIENDSLIST, NewFRIENDSLIST) ->
         false -> NewFRIENDSLIST
     end.
 
-%%% state
+%%% detect
+% Un attore "detect" che si occupa di muovere l'automobile sulla scacchiera, interagendo con l'attore "ambient" per fare sensing dello stato
+% di occupazione dei posteggi.
+%%% Protocolli per la Detection e il Parcheggio
+% L'attore "detect" di un'automobile sceglie un posteggio obiettivo libero interagendo con l'attore "state".
+% Dopodichè, ogni 2s, si avvicina di una cella verso tale obiettivo. Se deve muoversi lungo entrambi gli assi (x e y),
+% lo fa scegliendo randomicamente l'asse e muovendosi nella direzione che minimizza la distanza percorsa.
+% Dopo ogni movimento invia la richiesta:
+%  - {isFree, PID, X, Y, Ref} all'attore ambient dove PID è il PID dell'attore che ne fa richiesta e Ref una nuova reference
+%  - {status, Ref, IsFree} è la risposta da parte dell'ambiente all'attore il cui PID PID era contenuto nella richiesta.
+% Il booleano IsFree vale true sse il posteggio è libero.
+% In seguito alla ricezione del messaggio status, il messaggio viene condiviso con l'attore "state" tramite un protocollo privato.
+% Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
+%  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
+%  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore "ambient" per dire che l'automobile sta lasciando il posteggio.
+% La reference contenuta nel messaggio deve essere identica a quella del messaggio precedente.
+% Nel caso in cui due automobili arrivino contemporanemante al posteggio e inviino entrambe un messaggio park, l'ambiente assegnerà il posteggio
+% a quella arrivata per prima, killando la seconda automobile.
+% Durante il parcheggio, l'attore ambient monitora l'automobile parcheggiata in modo da liberare il posteggio qualora l'attore automobile venga killato.
+% Tramite un protocollo privato l'attore "detect" viene informato dall'attore "state" quando il parcheggio obiettivo divienta noto essere occupato,
+% al fine di cambiare posteggio obiettivo scegliendone uno ritenuto libero.
 
-state(Grid, X, Y) ->
-    NewGrid = maps:update({X,Y}, true, Grid),
-    state(NewGrid, {X, Y}).
-
-state(Grid, {X, Y}) -> 
-    receive
-        {isGoalFree, PID, NewGoalX, NewGoalY, Ref} -> case maps:get({NewGoalX, NewGoalY}, Grid) of
-                true -> PID ! {goalFree, true, Ref};
-                Boolean -> PID ! {goalFree, Boolean, Ref}
-            end,
-            state(Grid, {X, Y});
-        {myPosition, PID, Ref} -> 
-            PID ! {myPos, X, Y, Ref},
-            state(Grid, {X, Y});
-        {updateMyPosition, NewX, NewY, _} -> 
-            NewGrid = maps:update({X,Y}, true, Grid),
-            NewGrid1 = maps:update({NewX,NewY}, true, NewGrid),
-            state(NewGrid1, {NewX, NewY});
-        {statusUpdate, StatusX, StatusY, IsFree} -> 
-            NewGrid = maps:update({StatusX, StatusY}, IsFree, Grid),
-            state(NewGrid, {X, Y})
-    end.
-
-detect(StatePid, GridWidth, GridHeight) -> 
-    NewGoalX = rand:uniform(GridWidth),
-    NewGoalY = rand:uniform(GridHeight),
-    Ref = make_ref(),
-    StatePid ! {isGoalFree, self(), NewGoalX, NewGoalY, Ref},
-    receive
-        {goalFree, Boolean, Ref} -> case Boolean of
-            true -> 
-                render ! {target, StatePid, NewGoalX, NewGoalY},
-                detect(StatePid, NewGoalX, NewGoalY, GridWidth, GridHeight);
-            false -> detect(StatePid, GridWidth, GridHeight)
-        end
-    end.
-
-detect(StatePid, GoalX, GoalY, GridWidth, GridHeight) ->
-    % sleep function
-    sleep(2000),
-    move(GoalX, GoalY, StatePid, GridWidth, GridHeight),
+% (Re-)Inizializzazione
+detect(StatePid, GridWidth, GridHeight) ->
+    % L'attore "detect" di un'automobile sceglie un posteggio obiettivo libero interagendo con l'attore "state".
+    GoalX = rand:uniform(GridWidth),
+    GoalY = rand:uniform(GridHeight),
     Ref = make_ref(),
     StatePid ! {isGoalFree, self(), GoalX, GoalY, Ref},
     receive
         {goalFree, Boolean, Ref} -> case Boolean of
-            true -> detect(StatePid, GoalX, GoalY, GridWidth, GridHeight);
+            true -> 
+                render ! {target, StatePid, GoalX, GoalY},
+                detect(StatePid, GridWidth, GridHeight, GoalX, GoalY);
             false -> detect(StatePid, GridWidth, GridHeight)
         end
     end.
-    
 
-move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight) -> 
+% Default behaviour
+detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
+    % Dopodichè, ogni 2s, si avvicina di una cella verso tale obiettivo. Se deve muoversi lungo entrambi gli assi (x e y),
+    % lo fa scegliendo randomicamente l'asse e muovendosi nella direzione che minimizza la distanza percorsa.
+    sleep(2000),
+    move(StatePid, GridWidth, GridHeight, GoalX, GoalY), 
+    % Dopo ogni movimento invia la richiesta:
+    %  - {isFree, PID, X, Y, Ref} all'attore ambient dove PID è il PID dell'attore che ne fa richiesta e Ref una nuova reference
+    MyPositionRef = make_ref(),
+    StatePid ! {getMyPosition, self(), MyPositionRef},
+    receive
+        {myPosition, X, Y, MyPositionRef} ->
+            %io:format("My position is: ~p~n", [{self(), X, Y}]),    % DEBUG
+            IsFreeRef = make_ref(),
+            ambient ! {isFree, self(), X, Y, IsFreeRef},
+            receive
+                %  - {status, Ref, IsFree} è la risposta da parte dell'ambiente all'attore il cui PID PID era contenuto nella richiesta.
+                % Il booleano IsFree vale true sse il posteggio è libero.
+                {status, IsFreeRef, IsFree} ->
+                    %io:format("IsFree: ~p~n", [{self(), IsFree}]),    % DEBUG
+                    % In seguito alla ricezione del messaggio status, il messaggio viene condiviso con l'attore "state" tramite un protocollo privato.
+                    % TODO: gossiping
+                    % Aggiorno il render sulla mia nuova posizione
+                    render ! {position, StatePid, X, Y},
+                    % Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
+                    %  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
+                    case (X =:= GoalX) and  (Y =:= GoalY) and (IsFree =:= true) of
+                        true ->
+                            ParkRef = make_ref(),
+                            ambient ! {park, self(), X, Y, ParkRef},
+                            % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
+                            StatePid ! {statusUpdate, X, Y, false},
+                            %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore "ambient" per dire che l'automobile
+                            % sta lasciando il posteggio. La reference contenuta nel messaggio deve essere identica a quella del messaggio precedente.
+                            sleep(rand:uniform(5)),
+                            ambient ! {leave, self(), ParkRef},
+                            detect(StatePid, GridWidth, GridHeight);
+                        false ->
+                            % Tramite un protocollo privato l'attore "detect" viene informato dall'attore "state" quando il parcheggio obiettivo divienta noto essere occupato,
+                            % al fine di cambiare posteggio obiettivo scegliendone uno ritenuto libero.
+                            IsGoalFreeRef = make_ref(),
+                            StatePid ! {isGoalFree, self(), GoalX, GoalY, IsGoalFreeRef},
+                            receive
+                                {goalFree, IsGoalFree, IsGoalFreeRef} ->
+                                %io:format("IsGoalFree: ~p~n", [{self(), IsGoalFree}]),    % DEBUG
+                                    case IsGoalFree of
+                                        true -> detect(StatePid, GoalX, GoalY, GridWidth, GridHeight);
+                                        false -> detect(StatePid, GridWidth, GridHeight)
+                                    end
+                            end
+                    end
+            end
+    end.    
+
+% Movimento di una cella verso l'obiettivo. Se deve muoversi lungo entrambi gli assi (x e y),
+% lo fa scegliendo randomicamente l'asse e muovendosi nella direzione che minimizza la distanza percorsa.
+move(StatePid, GridWidth, GridHeight, GoalX, GoalY) -> 
     Ref = make_ref(),
-    StatePid ! {myPosition, self(), Ref},
+    StatePid ! {getMyPosition, self(), Ref},
     receive 
-        {myPos, X, Y, Ref} -> 
-            case X =:= NewGoalX of
-                true -> case Y =:= NewGoalY of 
-                            true -> 
-                                ParkRef = make_ref(),
-                                ambient ! {park, StatePid, NewGoalX, NewGoalY, ParkRef},
-                                IsFreeRef = make_ref(),
-                                ambient ! {isFree, StatePid, X, Y, IsFreeRef},
-                                receive
-                                    {status, _, IsFree} -> StatePid ! {statusUpdate, X, Y, IsFree}
-                                end;
-                                % TODO: handle parking
-                            false -> moveY(Y, NewGoalY, X, GridHeight, StatePid)
-                        end;
-                false -> case Y =:= NewGoalY of 
-                            true -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
-                            false -> 
-                                Axis = rand:uniform(2),
-                                case Axis of 
-                                    1 -> moveX(X, NewGoalX, Y, GridWidth, StatePid);
-                                    2 -> moveY(Y, NewGoalY, X, GridHeight, StatePid)
-                                end
-                        end
+        {myPosition, X, Y, Ref} ->
+            case X =:= GoalX of
+                true ->
+                    moveY(Y, GoalY, X, GridHeight, StatePid);
+                false ->
+                    case Y =:= GoalY of 
+                        true -> moveX(X, GoalX, Y, GridWidth, StatePid);
+                        false -> 
+                            Axis = rand:uniform(2),
+                            case Axis of 
+                                1 -> moveX(X, GoalX, Y, GridWidth, StatePid);
+                                2 -> moveY(Y, GoalY, X, GridHeight, StatePid)
+                            end
+                    end
             end
     end.
-    %move(NewGoalX, NewGoalY, StatePid, GridWidth, GridHeight).
 
+% Movimento di una cella verso l'obiettivo lungo l'asse x nella direzione che minimizza la distanza percorsa.
 moveX(X, NewGoalX, Y, GridWidth, StatePid) -> 
     case X < NewGoalX of
         true -> case abs(X - NewGoalX) < (GridWidth - lists:max([X, NewGoalX]) + lists:min([X, NewGoalX])) of
@@ -230,6 +257,7 @@ moveX(X, NewGoalX, Y, GridWidth, StatePid) ->
         {status, IsFreeRef, IsFree} -> StatePid ! {statusUpdate, UltimateX, Y, IsFree}
     end.
 
+% Movimento di una cella verso l'obiettivo lungo l'asse y nella direzione che minimizza la distanza percorsa.
 moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
     case Y < NewGoalY of
         true -> case abs(Y - NewGoalY) < (GridHeight - lists:max([Y, NewGoalY]) + lists:min([Y, NewGoalY])) of
@@ -258,6 +286,47 @@ moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
         {status, IsFreeRef, IsFree} -> StatePid ! {statusUpdate, X, UltimateY, IsFree}
     end.
 
-
-% sleep function
+% Funzione di sleep
 sleep(N) -> receive after N -> ok end.
+
+%%% state
+% Un attore "state" che si preoccupa di mantenere il modello interno dell'ambiente e le coordinate del posteggio obiettivo.
+% In pratica l'attore registra per ogni cella l'ultima informazione giunta in suo possesso (posteggio libero/occupato/nessuna informazione)
+% e propaga le nuove informazione ottenute agli amici (protocollo di gossiping). Inoltre cambia il posteggio obiettivo quando necessario
+% (es. quando scopre che il posteggio è ora occupato).
+%%% Protocollo di Gossiping
+% L'attore "state" mantiene il modello del mondo, ricevendo update sia dall'attore "detect" (tramite messaggi status),
+% sia dagli altri attori "state", via messaggi notifyStatus descritti fra poco.
+% Quando l'update comporta una modifica del modello interno (es. un posteggio che si riteneva essere occupato ora diventa libero, o viceversa),
+% tale cambiamento viene notificato a tutti gli amici tramite messaggi notifyStatus:
+%  - {notifyStatus, X, Y, IsFree}
+% Un protocollo privato permette all'attore "state" di ottenere la lista di amici correnti dall'attore "friendship".
+% Il protocollo può essere ottimizzato per trasferire la lista solamente al cambiamento di questa.
+
+% Inizializzatione
+state(X, Y, GridWidth, GridHeight) ->
+    Grid = maps:from_list([{{N,M}, true} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
+    state(Grid, X, Y).
+
+state(Grid, X, Y) ->
+    NewGrid = maps:update({X,Y}, true, Grid),
+    state(NewGrid, {X, Y}).
+
+state(Grid, {X, Y}) -> 
+    receive
+        {isGoalFree, PID, NewGoalX, NewGoalY, Ref} -> case maps:get({NewGoalX, NewGoalY}, Grid) of
+                true -> PID ! {goalFree, true, Ref};
+                Boolean -> PID ! {goalFree, Boolean, Ref}
+            end,
+            state(Grid, {X, Y});
+        {getMyPosition, PID, Ref} -> 
+            PID ! {myPosition, X, Y, Ref},
+            state(Grid, {X, Y});
+        {updateMyPosition, NewX, NewY, _} -> 
+            NewGrid = maps:update({X,Y}, true, Grid),
+            NewGrid1 = maps:update({NewX,NewY}, true, NewGrid),
+            state(NewGrid1, {NewX, NewY});
+        {statusUpdate, StatusX, StatusY, IsFree} -> 
+            NewGrid = maps:update({StatusX, StatusY}, IsFree, Grid),
+            state(NewGrid, {X, Y})
+    end.

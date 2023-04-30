@@ -1,5 +1,4 @@
-%Il progetto esporterà una funzione pubblica main/0 la quale, una volta invocata:
-
+% Il progetto esporterà una funzione pubblica main/0 la quale, una volta invocata:
 % - crea l'attore "ambient" che si registra usando l'atomo ambient
 % - crea l'attore "wellKnown" che si registra usando l'atomo wellKnown
 % - crea l'attore "render" che si registra usando l'atomo render
@@ -14,8 +13,8 @@ main() ->
     io:format("# Main started\n"),
     
     % initialize grid
-    Width = 20,
-    Height = 20,
+    Width = 10,
+    Height = 10,
     Grid = maps:from_list([{{X,Y}, none} || X <- lists:seq(1, Width), Y <- lists:seq(1, Height)]),
 
     % spawning and registering ambient actor
