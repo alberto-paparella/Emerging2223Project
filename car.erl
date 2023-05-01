@@ -166,11 +166,13 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
     move(StatePid, GridWidth, GridHeight, GoalX, GoalY), 
     % Dopo ogni movimento invia la richiesta:
     %  - {isFree, PID, X, Y, Ref} all'attore ambient dove PID è il PID dell'attore che ne fa richiesta e Ref una nuova reference
-    StateRef = make_ref(),
-    StatePid ! {getMyPosition, self(), StateRef},
+    MyPosRef = make_ref(),
+    StatePid ! {getMyPosition, self(), MyPosRef},
     receive
-        {myPosition, {X, Y}, StateRef} ->
+        {myPosition, {X, Y}, MyPosRef} ->
             %io:format("My position is: ~p~n", [{self(), X, Y}]),    % DEBUG
+            % Aggiorno il render sulla mia nuova posizione
+            render ! {position, StatePid, X, Y},
             IsFreeRef = make_ref(),
             ambient ! {isFree, self(), X, Y, IsFreeRef},
             receive
@@ -179,33 +181,33 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                 {status, IsFreeRef, IsFree} ->
                     %io:format("IsFree: ~p~n", [{self(), IsFree}]),    % DEBUG
                     % In seguito alla ricezione del messaggio status, il messaggio viene condiviso con l'attore "state" tramite un protocollo privato.
+                    StateRef = make_ref(),
                     StatePid ! {status, self(), {X, Y}, IsFree, StateRef},
                     % A questo punto, l'attore state condivide se la cella obiettivo è ancora disponibile, e nel caso contrario scelgo un nuovo obiettivo.
                     % Tramite un protocollo privato l'attore "detect" viene informato dall'attore "state" quando il parcheggio obiettivo diventa
                     % noto essere occupato, al fine di cambiare posteggio obiettivo scegliendone uno ritenuto libero.
+                    
                     receive
                         {isGoalFree, IsGoalFree, StateRef} ->
                             case IsGoalFree of
                                 false -> detect(StatePid, GridWidth, GridHeight);
-                                true -> io:format("")   % Do nothing
+                                true -> 
+                                    % Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
+                                    %  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
+                                    case (X =:= GoalX) and (Y =:= GoalY) of
+                                        true ->
+                                            ParkRef = make_ref(),
+                                            ambient ! {park, StatePid, X, Y, ParkRef},
+                                            % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
+                                            StatePid ! {status, self(), {X, Y}, false},
+                                            %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore "ambient" per dire che l'automobile
+                                            % sta lasciando il posteggio. La reference contenuta nel messaggio deve essere identica a quella del messaggio precedente.
+                                            sleep(rand:uniform(5000)),
+                                            ambient ! {leave, StatePid, ParkRef},
+                                            detect(StatePid, GridWidth, GridHeight);
+                                        false -> detect(StatePid, GridWidth, GridHeight, GoalX, GoalY)
+                                    end
                             end
-                    end,
-                    % Aggiorno il render sulla mia nuova posizione
-                    render ! {position, StatePid, X, Y},
-                    % Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
-                    %  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
-                    case (X =:= GoalX) and  (Y =:= GoalY) and (IsFree =:= true) of
-                        true ->
-                            ParkRef = make_ref(),
-                            ambient ! {park, self(), X, Y, ParkRef},
-                            % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
-                            StatePid ! {status, self(), {X, Y}, false},
-                            %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore "ambient" per dire che l'automobile
-                            % sta lasciando il posteggio. La reference contenuta nel messaggio deve essere identica a quella del messaggio precedente.
-                            sleep(rand:uniform(5)),
-                            ambient ! {leave, self(), ParkRef},
-                            detect(StatePid, GridWidth, GridHeight);
-                        false -> detect(StatePid, GoalX, GoalY, GridWidth, GridHeight)
                     end
             end
     end.    
@@ -247,17 +249,11 @@ moveX(X, NewGoalX, Y, GridWidth, StatePid) ->
     end,
     case NewX =:= 0 of
         true -> 
-            UltimateX = 5,
+            UltimateX = GridWidth,
             StatePid ! {updateMyPosition, {UltimateX, Y}};
         false ->
             UltimateX = NewX,
             StatePid ! {updateMyPosition, {UltimateX, Y}}
-    end,
-    render ! {position, StatePid, UltimateX, Y},
-    IsFreeRef = make_ref(),
-    ambient ! {isFree, self(), UltimateX, Y, IsFreeRef},
-    receive
-        {status, IsFreeRef, IsFree} -> StatePid ! {status, self(), {UltimateX, Y}, IsFree}
     end.
 
 % Movimento di una cella verso l'obiettivo lungo l'asse y nella direzione che minimizza la distanza percorsa.
@@ -274,17 +270,11 @@ moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
     end,
     case NewY =:= 0 of
         true -> 
-            UltimateY = 5,
+            UltimateY = GridHeight,
             StatePid ! {updateMyPosition, {X, UltimateY}};
         false ->
             UltimateY = NewY,
             StatePid ! {updateMyPosition, {X, UltimateY}}
-    end,
-    render ! {position, StatePid, X, UltimateY},
-    IsFreeRef = make_ref(),
-    ambient ! {isFree, self(), X, UltimateY, IsFreeRef},
-    receive
-        {status, IsFreeRef, IsFree} -> StatePid ! {status, self(), {X, UltimateY}, IsFree}
     end.
 
 % Funzione di sleep
@@ -320,14 +310,14 @@ state(Grid, {MyX, MyY}, FriendshipPid) ->
             % Controllo se è libero
             case maps:get({GoalX, GoalY}, Grid, none) of
                 % Se non ha nessuna informazione per il momento si comporta come se fosse libera
-                none -> PID ! {isGoalFree, true, Ref};
-                true -> PID ! {isGoalFree, true, Ref};
+                none -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+                true -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
                 false ->
                     % Chiedo a detect un nuovo posteggio libero e mi metto in attesa di riceverlo
                     PID ! {isGoalFree, false, Ref},
                     state(Grid, {MyX, MyY}, FriendshipPid)
-            end,
-            state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
+            end
+            
     end.
 
 % Default behaviour
@@ -339,33 +329,31 @@ state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) ->
         {updateMyPosition, {NewX, NewY}} -> 
             state(Grid, {NewX, NewY}, {GoalX, GoalY}, FriendshipPid);
         {status, PID, {X, Y}, IsFree, Ref} ->
-            io:format("DEBUG 1\t"),
             % Questa informazione modifica l'ambiente interno?
-            case maps:get({X, Y}, Grid, none) of
+            case maps:get({X, Y}, Grid, true) of
                 OldValue ->
                     case OldValue =:= IsFree of
-                        true -> state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+                        true -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
                         false ->
                             % Chiede a friendship la lista dei suoi amici e invia notifyStatus ad ognuno di loro (gossiping)
                             GetFriendsListRef = make_ref(),
                             FriendshipPid ! {getFriendsList, GetFriendsListRef},
                             receive
                                 {friendsList, FRIENDSLIST, GetFriendsListRef} ->
-                                    io:format("DEBUG 2\t"),
                                     notifyFriends(FRIENDSLIST, {X, Y}, IsFree)
                             end,
                             NewGrid = maps:put({X, Y}, IsFree, Grid),
                             % Il posteggio obiettivo è ancora libero?
                             case maps:get({GoalX, GoalY}, Grid, none) of
                                 % Se non ha nessuna informazione per il momento si comporta come se fosse libera
-                                none -> PID ! {isGoalFree, true, Ref};
-                                true -> PID ! {isGoalFree, true, Ref};
+                                none -> PID ! {isGoalFree, true, Ref}, state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+                                true -> PID ! {isGoalFree, true, Ref}, state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
                                 false ->
                                     % Chiedo a detect un nuovo posteggio libero e mi metto in attesa di riceverlo
                                     PID ! {isGoalFree, false, Ref},
                                     state(NewGrid, {MyX, MyY}, FriendshipPid)
-                            end,
-                            state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
+                            end
+                            
                     end
             end;
         {notifyStatus, {X, Y}, IsFree} ->

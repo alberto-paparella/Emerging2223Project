@@ -21,20 +21,22 @@ ambient(Grid, W, H) ->
             % l'ambiente assegnerà il posteggio a quella arrivata per prima, killando la seconda automobile.
             case maps:get({X, Y}, Grid) of
                 none -> io:format("");  % Do nothing
+                true -> io:format("");  % Do nothing
                 {_, false} ->
                     % TODO: kill car.
                     ambient(Grid, W, H)
             end,
             UpdatedGrid = maps:update({X, Y}, {PID, false}, Grid),
             render ! {parked, PID, X, Y, true},
-            ambient(UpdatedGrid, W, H),
+            % ambient(UpdatedGrid, W, H),
             % TODO: durante il parcheggio, l'attore ambient monitora l'automobile parcheggiata in modo da liberare
             % il posteggio qualora l'attore automobile venga killato.
             receive
                 %  Notifica da parte di detect che l'automobile sta lasciando il posteggio.
                 {leave, PID, Ref} ->
-                    UpdatedGrid = maps:update({X, Y}, {PID, true}, Grid),
+                    NUpdatedGrid = maps:update({X, Y}, {PID, true}, UpdatedGrid),
                     render ! {parked, PID, X, Y, false},
-                    ambient(UpdatedGrid, W, H)
+                    ambient(NUpdatedGrid, W, H)
             end
+            % ambient(UpdatedGrid, W, H)
     end.
