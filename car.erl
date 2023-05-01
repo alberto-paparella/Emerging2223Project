@@ -9,14 +9,14 @@
 %   di occupazione dei posteggi.
 
 -module(car).
--export([main/4, friendship/2, detect/3, state/4]).
+-export([main/4, friendship/2, detect/3, state/1]).
 
 %%% main
 % Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro.
 
 % Inizializzazione
 main(X, Y, GridWidth, GridHeight) ->
-    StatePid = spawn_link(?MODULE, state, [X, Y, GridWidth, GridHeight]),
+    StatePid = spawn_link(?MODULE, state, [{X, Y}]),
     spawn_link(?MODULE, friendship, [StatePid, []]),    
     spawn_link(?MODULE, detect, [StatePid, GridWidth, GridHeight]).
     % TODO: ri-creazione degli attori nel caso di fallimento di uno di loro (modello dei fallimenti).
@@ -304,29 +304,26 @@ sleep(N) -> receive after N -> ok end.
 % Il protocollo può essere ottimizzato per trasferire la lista solamente al cambiamento di questa.
 
 % Inizializzatione
-state(X, Y, GridWidth, GridHeight) ->
-    Grid = maps:from_list([{{N,M}, true} || N <- lists:seq(1, GridWidth), M <- lists:seq(1, GridHeight)]),
-    state(Grid, X, Y).
-
-state(Grid, X, Y) ->
-    NewGrid = maps:update({X,Y}, true, Grid),
-    state(NewGrid, {X, Y}).
+state({X, Y}) ->
+    % Posteggio libero = true, occupato = false, nessuna informazione = none (non è presente nella Map)
+    Grid = #{},
+    state(Grid, {X, Y}).
 
 state(Grid, {X, Y}) -> 
     receive
-        {isGoalFree, PID, NewGoalX, NewGoalY, Ref} -> case maps:get({NewGoalX, NewGoalY}, Grid) of
-                true -> PID ! {goalFree, true, Ref};
-                Boolean -> PID ! {goalFree, Boolean, Ref}
+        {isGoalFree, PID, GoalX, GoalY, Ref} ->
+            case maps:get({GoalX, GoalY}, Grid, none) of
+                % Se non ha nessuna informazione per il momento si comporta come se fosse libera
+                none -> PID ! {goalFree, true, Ref};
+                IsGoalFree -> PID ! {goalFree, IsGoalFree, Ref}
             end,
             state(Grid, {X, Y});
         {getMyPosition, PID, Ref} -> 
             PID ! {myPosition, X, Y, Ref},
             state(Grid, {X, Y});
         {updateMyPosition, NewX, NewY, _} -> 
-            NewGrid = maps:update({X,Y}, true, Grid),
-            NewGrid1 = maps:update({NewX,NewY}, true, NewGrid),
-            state(NewGrid1, {NewX, NewY});
+            state(Grid, {NewX, NewY});
         {statusUpdate, StatusX, StatusY, IsFree} -> 
-            NewGrid = maps:update({StatusX, StatusY}, IsFree, Grid),
+            NewGrid = maps:put({StatusX, StatusY}, IsFree, Grid),
             state(NewGrid, {X, Y})
     end.
