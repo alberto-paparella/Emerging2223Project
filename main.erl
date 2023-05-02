@@ -15,10 +15,9 @@ main() ->
     % initialize grid
     Width = 10,
     Height = 10,
-    Grid = maps:from_list([{{X,Y}, none} || X <- lists:seq(1, Width), Y <- lists:seq(1, Height)]),
 
     % spawning and registering ambient actor
-    AmbientPid = spawn(ambient, ambient, [Grid, Width, Height]),
+    AmbientPid = spawn(ambient, ambient, []),
     register(ambient, AmbientPid),
     io:format("# Ambient actor created and registered to 'ambient' atom with pid ~p\n", [AmbientPid]),
 
@@ -34,7 +33,7 @@ main() ->
     
     % spawning default number of cars
     NumberOfCars = 10,
-    createCars(NumberOfCars, [], Width, Height, 3000).
+    createCars(NumberOfCars, [], Width, Height, 500).
 
 % create cars recursively and keep trace of their Pids
 createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars > 0 ->
@@ -69,11 +68,11 @@ loop(N, CarsPids, Width, Height) ->
     %killCars(CarIndexToKill, NewCarsPids, N, Width, Height).
 
 % function that kills the selected car and calls the loop back
-killCars(CarIndexToKill, CarsPids, N, Width, Height) ->
-    {Left, [PidToKill|Right]} = lists:split(CarIndexToKill, CarsPids),
-    % TODO: Kill PidToKill
-    NewCarsPids = Left ++ Right,
-    loop(N, NewCarsPids, Width, Height).
+% killCars(CarIndexToKill, CarsPids, N, Width, Height) ->
+%     {Left, [PidToKill|Right]} = lists:split(CarIndexToKill, CarsPids),
+%     % TODO: Kill PidToKill
+%     NewCarsPids = Left ++ Right,
+%     loop(N, NewCarsPids, Width, Height).
 
 % sleep function
 sleep(N) -> receive after N -> ok end.
