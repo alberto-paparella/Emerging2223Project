@@ -9,6 +9,7 @@ ambient() ->
     % Grid è una mappa che contiene un elemento {PID, {X, Y}} per ogni macchina parcheggiata
     % Se non vi è un elemento di valore {X, Y}, allora quella cella è libera
     Grid = #{},
+    process_flag(trap_exit, true),
     ambient(Grid).
 
 ambient(Grid) ->
@@ -32,15 +33,29 @@ ambient(Grid) ->
             %         % TODO: kill car.
             %         ambient(Grid)
             % end,
-            UpdatedGrid = maps:put(PID, {X, Y}, Grid),
+            MonitorRef = monitor(process, PID),
+            UpdatedGrid = maps:put(PID, {X, Y, MonitorRef}, Grid),
             render ! {parked, PID, X, Y, true},
+            % monitor
             ambient(UpdatedGrid);
             % TODO: durante il parcheggio, l'attore ambient monitora l'automobile parcheggiata in modo da liberare
             % il posteggio qualora l'attore automobile venga killato.
         %  Notifica da parte di detect che l'automobile sta lasciando il posteggio.
         {leave, PID, Ref} ->
             UpdatedGrid = maps:remove(PID, Grid),
-            {X,Y} = maps:get(PID, Grid),
+            {X,Y, MonitorRef} = maps:get(PID, Grid),
+            demonitor(MonitorRef),
             render ! {parked, PID, X, Y, false},
+            ambient(UpdatedGrid);
+        {'DOWN', Ref, process, Pid, Reason} ->
+            io:format("Ambient demonitoring parked car ~p. Reason: ~p)\n", [Pid, Reason]),
+            demonitor(Ref),
+            UpdatedGrid = maps:remove(Pid, Grid),
+            render ! {dead, Pid},
+            ambient(UpdatedGrid);
+        % Protezione dalla morte delle macchine
+        {'EXIT', From, Reason} -> 
+            io:format("Ambient received exit message from ~p with reason ~p\n", [From, Reason]),
+            UpdatedGrid = maps:remove(From, Grid),
             ambient(UpdatedGrid)
     end.

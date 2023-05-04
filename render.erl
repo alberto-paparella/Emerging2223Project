@@ -27,6 +27,10 @@ render(CarsPositionsMap, W, H) ->
         {target, Pid, X, Y} ->
             io:format("Car ~p wants to park in {~p, ~p}\n", [Pid, X, Y]),
             render(CarsPositionsMap, W, H);
+        % message to remove a dead car from the render
+        {dead, Pid} -> 
+            NewCarsPositionsMap = maps:remove(Pid, CarsPositionsMap),
+            render(NewCarsPositionsMap, W, H);
         {draw} -> 
             BGrid = maps:from_list([{{X,Y}, none} || X <- lists:seq(1, W), Y <- lists:seq(1, H)]),
             CarsPList = maps:to_list(CarsPositionsMap),

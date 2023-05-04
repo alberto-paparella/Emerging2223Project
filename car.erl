@@ -9,17 +9,52 @@
 %   di occupazione dei posteggi.
 
 -module(car).
--export([main/4, friendship/2, detect/3, state/1]).
+-export([main/4, friendship/2, detect/4, state/1]).
 
 %%% main
 % Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro.
 
 % Inizializzazione
 main(X, Y, GridWidth, GridHeight) ->
-    StatePid = spawn_link(?MODULE, state, [{X, Y}]),
-    spawn_link(?MODULE, friendship, [StatePid, []]),    
-    spawn_link(?MODULE, detect, [StatePid, GridWidth, GridHeight]).
-    % TODO: ri-creazione degli attori nel caso di fallimento di uno di loro (modello dei fallimenti).
+    % link ad ambient
+    link(whereis(ambient)),
+    {StatePid, StateRef} = spawn_monitor(?MODULE, state, [{X, Y}]),
+    {FriendshipPid, FriendshipRef} = spawn_monitor(?MODULE, friendship, [StatePid, []]),    
+    {DetectPid, DetectRef} = spawn_monitor(?MODULE, detect, [StatePid, FriendshipPid, GridWidth, GridHeight]),
+    % DEBUG: help to kill cars
+    % io:format("State ~p\n", [StatePid]),
+    % io:format("Friend ~p\n", [FriendshipPid]),
+    % io:format("Detect ~p\n", [DetectPid]),
+    main({StatePid, StateRef}, {FriendshipPid, FriendshipRef}, {DetectPid, DetectRef}, GridWidth, GridHeight).
+
+% Monitoring degli attori figli e ricreazione della car in caso di fallimenti
+main({StatePid, StateRef}, {FriendshipPid, FriendshipRef}, {DetectPid, DetectRef}, GridWidth, GridHeight) ->
+    receive
+        {'DOWN', StateRef, process, _, Why} ->
+            io:format("State ~p of car ~p is dead. Car restarting. Why: ~p\n", [StatePid, self(), Why]),
+            render ! {dead, StatePid},
+            exit(FriendshipPid, stateKilled),
+            exit(DetectPid, stateKilled),
+            NewX = rand:uniform(GridWidth),
+            NewY = rand:uniform(GridHeight),
+            main(NewX, NewY, GridWidth, GridHeight);
+        {'DOWN', FriendshipRef, process, _, Why} ->
+            io:format("Friendship ~p of car ~p is dead. Car restarting. Why: ~p\n", [FriendshipPid, self(), Why]),
+            render ! {dead, StatePid},
+            exit(StatePid, friendshipKilled),
+            exit(DetectPid, friendshipKilled),
+            NewX = rand:uniform(GridWidth),
+            NewY = rand:uniform(GridHeight),
+            main(NewX, NewY, GridWidth, GridHeight);
+        {'DOWN', DetectRef, process, _, Why} ->
+            io:format("Detect ~p of car ~p is dead. Car restarting. Why: ~p\n", [DetectPid, self(), Why]),
+            render ! {dead, StatePid},
+            exit(StatePid, detectKilled),
+            exit(DetectPid, detectKilled),
+            NewX = rand:uniform(GridWidth),
+            NewY = rand:uniform(GridHeight),
+            main(NewX, NewY, GridWidth, GridHeight)
+    end.
 
 %%% friendship
 % Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori, integrandone di nuovi nel caso in cui il numero scenda.
@@ -34,6 +69,7 @@ main(X, Y, GridWidth, GridHeight) ->
 
 % Inizializzazione
 friendship(StatePid, FRIENDSLIST) when FRIENDSLIST =:= [] ->
+    link(StatePid),
     Ref = make_ref(),
     % Per il futuro algoritmo di gossiping, friendship deve comunicare il suo PID a state in modo che possano comunicare.
     StatePid ! {friendshipPid, self()},
@@ -67,7 +103,7 @@ friendship(StatePid, FRIENDSLIST) when length(FRIENDSLIST) < 5 ->
 % Default behaviour
 friendship(StatePid, FRIENDSLIST) ->
     %io:format("Car (StatePid): ~p~n", [StatePid]),
-    %io:format("FRIENDSLIST: ~p~n", [FRIENDSLIST]),
+    % io:format("FRIENDSLIST of ~p: ~p~n", [StatePid, FRIENDSLIST]),
     receive
         {getFriends, PID1, PID2, Ref} ->
             PID1 ! {myFriends, FRIENDSLIST, Ref},
@@ -80,23 +116,31 @@ friendship(StatePid, FRIENDSLIST) ->
             end;
         % Protocollo privato fra state e friendship della stessa automobile per permettere a state di ricevere la lista dei suoi amici.
         {getFriendsList, Ref} ->
-            StatePid ! {friendsList, FRIENDSLIST, Ref}
+            StatePid ! {friendsList, FRIENDSLIST, Ref};
+        % Rimuovere amici morti
+        {'DOWN', Ref, process, Pid, _} ->
+            io:format("Friendship of ~p: removing car ~p from friends because it died.\n", [StatePid, Pid]),
+            demonitor(Ref),
+            NewFRIENDSLIST = [ Pids || {FPid, _} = Pids <- FRIENDSLIST, FPid /= Pid],
+            friendship(StatePid, NewFRIENDSLIST)
     end.
 
 %  Aggiunge casualmente un attore da PIDSLIST diverso da sè stesso non ancora contenuto nella lista degli amici.
 makeFriend(StatePid, FRIENDSLIST, PIDSLIST) ->
     case length(PIDSLIST) /= 0 of
         true ->
-            NewFriend = lists:nth(rand:uniform(length(PIDSLIST)), PIDSLIST),
-            case (NewFriend =:= {self(), StatePid}) or (lists:member(NewFriend, FRIENDSLIST)) of
-                true -> makeFriend(StatePid, FRIENDSLIST, lists:delete(NewFriend,PIDSLIST));
-                false -> [NewFriend | FRIENDSLIST]
+            {NewFriendFriendship, NewFriendState} = lists:nth(rand:uniform(length(PIDSLIST)), PIDSLIST),
+            case ({NewFriendFriendship, NewFriendState} =:= {self(), StatePid}) or (lists:member({NewFriendFriendship, NewFriendState}, FRIENDSLIST)) of
+                true -> makeFriend(StatePid, FRIENDSLIST, lists:delete({NewFriendFriendship, NewFriendState},PIDSLIST));
+                false -> 
+                    monitor(process, NewFriendFriendship),
+                    [{NewFriendFriendship, NewFriendState} | FRIENDSLIST]
             end;
         false -> FRIENDSLIST
     end.
 
 % Finchè la lista degli amici non contiene 5 amici, aggiunge casualmente un attore da PIDSLIST diverso da sè stesso non ancora contenuto nella lista degli amici.
-makeFriends(StatePid, FRIENDSLIST, PIDSLIST) ->
+makeFriends(StatePid, FRIENDSLIST, PIDSLIST) when length(FRIENDSLIST) < 5 ->
     % Nota: questo corrisponde a un ciclo DO-WHILE in quanto in questo punto sicuramente è necessario aggiungere almeno un attore alla lista.
     % Questo ci permette di spostare il controllo all'interno e risparmiare una chiamata a ricorsiva.
     NewFRIENDSLIST = makeFriend(StatePid, FRIENDSLIST, PIDSLIST),
@@ -139,6 +183,11 @@ getFriends(StatePid, FRIENDSLIST, NewFRIENDSLIST) ->
 % Durante il parcheggio, l'attore ambient monitora l'automobile parcheggiata in modo da liberare il posteggio qualora l'attore automobile venga killato.
 % Tramite un protocollo privato l'attore "detect" viene informato dall'attore "state" quando il parcheggio obiettivo divienta noto essere occupato,
 % al fine di cambiare posteggio obiettivo scegliendone uno ritenuto libero.
+
+detect(StatePid, FriendshipPid, GridWidth, GridHeight) ->
+    link(StatePid),
+    link(FriendshipPid),
+    detect(StatePid, GridWidth, GridHeight).
 
 % (Re-)Inizializzazione
 detect(StatePid, GridWidth, GridHeight) ->
