@@ -27,18 +27,17 @@ main() ->
     io:format("# Wellknown actor created and registered to 'wellKnown' atom with pid ~p\n", [WellknownPid]),
     
     % spawning and registering render actor
-    RenderPid = spawn(render, render, [#{}, Width, Height]),
+    RenderPid = spawn(render, render, [Width, Height]),
     register(render, RenderPid),
     io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [RenderPid]),
     
     % spawning default number of cars
     NumberOfCars = 6,
-    createCars(NumberOfCars, [], Width, Height, 8000).
+    createCars(NumberOfCars, [], Width, Height, 20000).
 
 % create cars recursively and keep trace of their Pids
 createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars > 0 ->
     % spawn a car
-    % TODO: what if position is already occupied?
     NewX = rand:uniform(Width),
     NewY = rand:uniform(Height),
     CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
@@ -53,22 +52,23 @@ loop(N, CarsPids, Width, Height) ->
     io:format("Cars: ~p\n", [CarsPids]),
     sleep(N),
     % spawn a car
-    % NewX = rand:uniform(Width),
-    % NewY = rand:uniform(Height),
-    % CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
-    % NewCarsPids = [CarPid | CarsPids],
-    render ! {draw},
-    % choose the index of one car to kill 
-    CarIndexToKill = rand:uniform(length(CarsPids) - 1),
-    % kill it
-    killCars(CarIndexToKill, CarsPids, N, Width, Height).
+    NewX = rand:uniform(Width),
+    NewY = rand:uniform(Height),
+    CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
+    NewCarsPids = [CarPid | CarsPids],
+    % kill one car
+    killCars(NewCarsPids, N, Width, Height).
 
 % function that kills the selected car and calls the loop back
-killCars(CarIndexToKill, CarsPids, N, Width, Height) ->
+killCars(CarsPids, N, Width, Height) when length(CarsPids) > 1 ->
+    % choose the index of one car to kill 
+    CarIndexToKill = rand:uniform(length(CarsPids) - 1),
     {Left, [PidToKill|Right]} = lists:split(CarIndexToKill, CarsPids),
-    exit(PidToKill, mainKill),
-    NewCarsPids = Left ++ Right,
-    loop(N, NewCarsPids, Width, Height).
+    io:format("Main killing ~p\n", [PidToKill]),
+    exit(PidToKill, kill),
+    loop(N, Left ++ Right, Width, Height);
+killCars(CarsPids, N, Width, Height) when length(CarsPids) =< 1 ->
+    loop(N, CarsPids, Width, Height).
 
 % sleep function
 sleep(N) -> receive after N -> ok end.

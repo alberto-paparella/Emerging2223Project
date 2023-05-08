@@ -13,22 +13,32 @@
 % Per esempio, potrebbe essere un'"immagine" in ASCII art seguita da una leggenda, rigenerata e mostrata a intervalli regolari.
 
 -module(render).
--export([render/3]).
+-export([render/2, renderLoop/0]).
 
 % each cell is either {Pid, isParked} or none (if none the cell is empty)
+renderLoop() ->
+    sleep(1000),
+    render ! {draw},
+    renderLoop().
+
+render(W, H) -> 
+    spawn_link(?MODULE, renderLoop, []),
+    render(#{}, W, H).
 render(CarsPositionsMap, W, H) ->
     receive 
         {position, Pid, X, Y} ->
+            monitor(process, Pid),
             NewCarsPositionsMap = maps:put(Pid, {{X, Y}, false}, CarsPositionsMap),
             render(NewCarsPositionsMap, W, H);
         {parked, Pid, X, Y, IsParked} -> 
+            monitor(process, Pid),
             NewCarsPositionsMap = maps:put(Pid, {{X, Y}, IsParked}, CarsPositionsMap),
             render(NewCarsPositionsMap, W, H);
         {target, Pid, X, Y} ->
             io:format("Car ~p wants to park in {~p, ~p}\n", [Pid, X, Y]),
             render(CarsPositionsMap, W, H);
-        % message to remove a dead car from the render
-        {dead, Pid} -> 
+        {'DOWN', Ref, process, Pid, _} ->
+            demonitor(Ref),
             NewCarsPositionsMap = maps:remove(Pid, CarsPositionsMap),
             render(NewCarsPositionsMap, W, H);
         {draw} -> 
@@ -38,7 +48,10 @@ render(CarsPositionsMap, W, H) ->
                     PidList = [ {P, IsParked} || {P, {Coord, IsParked}} <- CarsPList, Coord =:= K],
                     case length(PidList) =:= 0 of
                         true ->  none;
-                        false -> lists:nth(1, PidList)
+                        false -> case length(PidList) > 1 of
+                            true -> twoOrMore;
+                            false -> lists:nth(1, PidList)
+                        end
                     end
                 end,
             NewGrid = maps:map(UpdateGridFun, BGrid),
@@ -49,10 +62,11 @@ render(CarsPositionsMap, W, H) ->
             render(CarsPositionsMap, W, H)
     end.
 
-draw([], _, _) -> io:format("~nLegend:~n    * '*': empty spaces~n    * 'X': car parked~n    * 'O': moving car~n~n");
+draw([], _, _) -> io:format("~nLegend:~n    * '*': empty spaces~n    * 'X': car parked~n    * 'O': moving car\n    * 'U': more than one car in the cell~n~n");
 draw([{_, Value}|TL], Now, W) when Now rem W =:= 0 ->
     Symbol = case Value of
         none -> '*';
+        twoOrMore -> 'U';
         {_, true} -> 'X';
         {_, false} -> 'O' end,
     io:format("~s ~n", [Symbol]),
@@ -60,7 +74,11 @@ draw([{_, Value}|TL], Now, W) when Now rem W =:= 0 ->
 draw([{_, Value}|TL], Now, W) ->
     Symbol = case Value of
         none -> '*';
+        twoOrMore -> 'U';
         {_, true} -> 'X';
         {_, false} -> 'O' end,
     io:format("~s ", [Symbol]),
     draw(TL, Now+1, W).
+
+% sleep function
+sleep(N) -> receive after N -> ok end.

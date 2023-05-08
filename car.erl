@@ -18,39 +18,25 @@
 main(X, Y, GridWidth, GridHeight) ->
     % link ad ambient
     link(whereis(ambient)),
-    {StatePid, StateRef} = spawn_monitor(?MODULE, state, [{X, Y}]),
-    {FriendshipPid, FriendshipRef} = spawn_monitor(?MODULE, friendship, [StatePid, []]),    
-    {DetectPid, DetectRef} = spawn_monitor(?MODULE, detect, [StatePid, FriendshipPid, GridWidth, GridHeight]),
+    StatePid = spawn_link(?MODULE, state, [{X, Y}]),
+    FriendshipPid = spawn_link(?MODULE, friendship, [StatePid, []]),    
+    DetectPid = spawn_link(?MODULE, detect, [StatePid, FriendshipPid, GridWidth, GridHeight]),
     % DEBUG: help to kill cars
     % io:format("State ~p\n", [StatePid]),
     % io:format("Friend ~p\n", [FriendshipPid]),
     % io:format("Detect ~p\n", [DetectPid]),
-    main({StatePid, StateRef}, {FriendshipPid, FriendshipRef}, {DetectPid, DetectRef}, GridWidth, GridHeight).
+    process_flag(trap_exit, true),
+    main(whereis(ambient), GridWidth, GridHeight).
 
 % Monitoring degli attori figli e ricreazione della car in caso di fallimenti
-main({StatePid, StateRef}, {FriendshipPid, FriendshipRef}, {DetectPid, DetectRef}, GridWidth, GridHeight) ->
+% main({StatePid, StateRef}, {FriendshipPid, FriendshipRef}, {DetectPid, DetectRef}, GridWidth, GridHeight) ->
+main(AmbientPid, GridWidth, GridHeight) ->
     receive
-        {'DOWN', StateRef, process, _, Why} ->
-            io:format("State ~p of car ~p is dead. Car restarting. Why: ~p\n", [StatePid, self(), Why]),
-            render ! {dead, StatePid},
-            exit(FriendshipPid, stateKilled),
-            exit(DetectPid, stateKilled),
-            NewX = rand:uniform(GridWidth),
-            NewY = rand:uniform(GridHeight),
-            main(NewX, NewY, GridWidth, GridHeight);
-        {'DOWN', FriendshipRef, process, _, Why} ->
-            io:format("Friendship ~p of car ~p is dead. Car restarting. Why: ~p\n", [FriendshipPid, self(), Why]),
-            render ! {dead, StatePid},
-            exit(StatePid, friendshipKilled),
-            exit(DetectPid, friendshipKilled),
-            NewX = rand:uniform(GridWidth),
-            NewY = rand:uniform(GridHeight),
-            main(NewX, NewY, GridWidth, GridHeight);
-        {'DOWN', DetectRef, process, _, Why} ->
-            io:format("Detect ~p of car ~p is dead. Car restarting. Why: ~p\n", [DetectPid, self(), Why]),
-            render ! {dead, StatePid},
-            exit(StatePid, detectKilled),
-            exit(DetectPid, detectKilled),
+        {'EXIT', AmbientPid, Reason} -> 
+            io:format("Ambient is dead. Reason: ~p. Car ~p is killing itself\n", [Reason, self()]),
+            exit(kill);
+        {'EXIT', From, Reason} -> 
+            io:format("Main received exit message from ~p with reason ~p\n", [From, Reason]),
             NewX = rand:uniform(GridWidth),
             NewY = rand:uniform(GridHeight),
             main(NewX, NewY, GridWidth, GridHeight)
@@ -119,7 +105,7 @@ friendship(StatePid, FRIENDSLIST) ->
             StatePid ! {friendsList, FRIENDSLIST, Ref};
         % Rimuovere amici morti
         {'DOWN', Ref, process, Pid, _} ->
-            io:format("Friendship of ~p: removing car ~p from friends because it died.\n", [StatePid, Pid]),
+            io:format("Friendship of ~p: removing car ~p's friendship from friends because it died.\n", [StatePid, Pid]),
             demonitor(Ref),
             NewFRIENDSLIST = [ Pids || {FPid, _} = Pids <- FRIENDSLIST, FPid /= Pid],
             friendship(StatePid, NewFRIENDSLIST)
