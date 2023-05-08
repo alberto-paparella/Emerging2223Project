@@ -18,8 +18,13 @@ wellKnown(PIDSLIST) ->
             % Nota: scegliamo di aggiungerlo dopo aver restituito myFriends in quanto verrebbe scartato dall'attore friendship mittente in ogni caso.
             case lists:member({PID1, PID2}, PIDSLIST) of
                 true -> wellKnown(PIDSLIST);
-                false -> wellKnown([{PID1, PID2} | PIDSLIST])
-            end
+                false -> 
+                    monitor(process, PID1),
+                    wellKnown([{PID1, PID2} | PIDSLIST])
+            end;
+        {'DOWN', Ref, process, Pid, _} ->
+            demonitor(Ref),
+            io:format("Wellknown deleting from its pids list car with friendship ~p\n", [Pid]),
+            NewPidList = [{PID1, PID2} || {PID1, PID2} <- PIDSLIST, PID1 /= Pid],
+            wellKnown(NewPidList)
     end.
-
-% TODO: comportamento in cui le macchine presenti in PIDSLIST vengono eliminate dall'attore main durante l'esecuzione.
