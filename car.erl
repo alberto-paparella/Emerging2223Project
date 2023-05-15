@@ -197,7 +197,6 @@ detect(StatePid, GridWidth, GridHeight) ->
 detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
     % Dopodichè, ogni 2s, si avvicina di una cella verso tale obiettivo. Se deve muoversi lungo entrambi gli assi (x e y),
     % lo fa scegliendo randomicamente l'asse e muovendosi nella direzione che minimizza la distanza percorsa.
-    %sleep(2000),
     IsGoalFreeRef = make_ref(),
     StatePid ! {isGoalFree, self(), IsGoalFreeRef},
     receive
@@ -211,7 +210,6 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                     StatePid ! {getMyPosition, self(), MyPosRef},
                     receive
                         {myPosition, {X, Y}, MyPosRef} ->
-                            %io:format("My position is: ~p~n", [{self(), X, Y}]),    % DEBUG
                             % Aggiorno il render sulla mia nuova posizione
                             render ! {position, StatePid, X, Y},
                             IsFreeRef = make_ref(),
@@ -220,7 +218,6 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                                 %  - {status, Ref, IsFree} è la risposta da parte dell'ambiente all'attore il cui PID PID era contenuto nella richiesta.
                                 % Il booleano IsFree vale true sse il posteggio è libero.
                                 {status, IsFreeRef, IsFree} ->
-                                    %io:format("IsFree: ~p~n", [{self(), IsFree}]),    % DEBUG
                                     % In seguito alla ricezione del messaggio status, il messaggio viene condiviso con l'attore "state" tramite un protocollo privato.
                                     StateRef = make_ref(),
                                     StatePid ! {status, self(), {X, Y}, IsFree, StateRef},
@@ -228,31 +225,27 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                                     % Tramite un protocollo privato l'attore "detect" viene informato dall'attore "state" quando il parcheggio obiettivo diventa
                                     % noto essere occupato, al fine di cambiare posteggio obiettivo scegliendone uno ritenuto libero.
                                     
-                                    %receive
-                                        %{isGoalFree, IsGoalFree, StateRef} ->
-                                            %case IsGoalFree of
-                                            case IsFree of
-                                                false -> detect(StatePid, GridWidth, GridHeight);
-                                                true -> 
-                                                    % Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
-                                                    %  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
-                                                    case (X =:= GoalX) and (Y =:= GoalY) of
-                                                        true ->
-                                                            ParkRef = make_ref(),
-                                                            ambient ! {park, StatePid, X, Y, ParkRef},
-                                                            % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
-                                                            StatePid ! {status, self(), {X, Y}, false},
-                                                            %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore "ambient" per dire che l'automobile
-                                                            % sta lasciando il posteggio. La reference contenuta nel messaggio deve essere identica a quella del messaggio precedente.
-                                                            sleep(rand:uniform(5000)),
-                                                            ambient ! {leave, StatePid, ParkRef},
-                                                            detect(StatePid, GridWidth, GridHeight);
-                                                        false ->
-                                                            sleep(2000),
-                                                            detect(StatePid, GridWidth, GridHeight, GoalX, GoalY)
-                                                    end
+                                    case IsFree of
+                                        false -> detect(StatePid, GridWidth, GridHeight);
+                                        true -> 
+                                            % Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
+                                            %  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
+                                            case (X =:= GoalX) and (Y =:= GoalY) of
+                                                true ->
+                                                    ParkRef = make_ref(),
+                                                    ambient ! {park, StatePid, X, Y, ParkRef},
+                                                    % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
+                                                    StatePid ! {status, self(), {X, Y}, false},
+                                                    %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore "ambient" per dire che l'automobile
+                                                    % sta lasciando il posteggio. La reference contenuta nel messaggio deve essere identica a quella del messaggio precedente.
+                                                    sleep(rand:uniform(5000)),
+                                                    ambient ! {leave, StatePid, ParkRef},
+                                                    detect(StatePid, GridWidth, GridHeight);
+                                                false ->
+                                                    sleep(2000),
+                                                    detect(StatePid, GridWidth, GridHeight, GoalX, GoalY)
                                             end
-                                    %end
+                                    end
                             end
                     end;
                 false ->
@@ -416,7 +409,6 @@ state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) ->
                     end
             end;
         {notifyStatus, {X, Y}, IsFree} ->
-            %io:format("DEBUG 3\t"),
             % Questa informazione modifica l'ambiente interno?
             case maps:get({X, Y}, Grid, none) of
                 OldValue ->
@@ -428,11 +420,10 @@ state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) ->
                             FriendshipPid ! {getFriendsList, GetFriendsListRef},
                             receive
                                 {friendsList, FRIENDSLIST, GetFriendsListRef} ->
-                                %io:format("DEBUG 4\t"),
                                     notifyFriends(FRIENDSLIST, {X, Y}, IsFree)
                             end,
                             NewGrid = maps:put({X, Y}, IsFree, Grid),
-                            % TODO: in questo punto non posso notificare a detect di cambiare il goal (mi manca il PID)
+                            % Se il goal non è più free, detect se ne accorge nel prossimo istante
                             state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
                     end
             end
@@ -444,5 +435,5 @@ notifyFriends(FRIENDSLIST, {X, Y}, IsFree) ->
         true ->
             lists:last(tuple_to_list(lists:last(FRIENDSLIST))) ! {notifyStatus, {X, Y}, IsFree},
             notifyFriends(lists:droplast(FRIENDSLIST), {X, Y}, IsFree);
-        false -> io:format("")  % Do nothing
+        false -> done
     end.

@@ -20,6 +20,7 @@ wellKnown(PIDSLIST) ->
                 true -> wellKnown(PIDSLIST);
                 false -> 
                     monitor(process, PID1),
+                    io:format("Wellknown adding new car with friendship ~p\n", [PID1]),
                     wellKnown([{PID1, PID2} | PIDSLIST])
             end;
         {'DOWN', Ref, process, Pid, _} ->
