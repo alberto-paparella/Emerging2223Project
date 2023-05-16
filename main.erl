@@ -16,6 +16,9 @@ main() ->
     Width = 10,
     Height = 10,
 
+    % set SleepTime
+    SleepTime = 10000, %ms
+
     % spawning and registering ambient actor
     AmbientPid = spawn(ambient, ambient, []),
     register(ambient, AmbientPid),
@@ -32,43 +35,44 @@ main() ->
     io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [RenderPid]),
     
     % spawning default number of cars
-    NumberOfCars = 6,
-    createCars(NumberOfCars, [], Width, Height, 20000).
+    NCarsToCreate = 6,
+    createCars(NCarsToCreate, [], Width, Height, SleepTime).
 
 % create cars recursively and keep trace of their Pids
-createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars > 0 ->
+createCars(NCarsToCreate, CarsPids, Width, Height, SleepTime) when NCarsToCreate > 0 ->
     % spawn a car
     NewX = rand:uniform(Width),
     NewY = rand:uniform(Height),
     CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
     NewCarsPids = [CarPid | CarsPids],
-    createCars(NumberOfCars-1, NewCarsPids, Width, Height, SleepTime);
+    createCars(NCarsToCreate-1, NewCarsPids, Width, Height, SleepTime);
 % once finished call main loop
-createCars(NumberOfCars, CarsPids, Width, Height, SleepTime) when NumberOfCars =:= 0 -> 
+createCars(NCarsToCreate, CarsPids, Width, Height, SleepTime) when NCarsToCreate =:= 0 -> 
     loop(SleepTime, CarsPids, Width, Height).
 
 % main loop that spawns and kills cars each N seconds
-loop(N, CarsPids, Width, Height) -> 
+loop(SleepTime, CarsPids, Width, Height) -> 
     io:format("Cars: ~p\n", [CarsPids]),
-    sleep(N),
-    % spawn a car
-    NewX = rand:uniform(Width),
-    NewY = rand:uniform(Height),
-    CarPid = spawn(car, main, [NewX, NewY, Width, Height]),
-    NewCarsPids = [CarPid | CarsPids],
-    % kill one car
-    killCars(NewCarsPids, N, Width, Height).
+    sleep(SleepTime),
+    % kill N cars (and, afterwards, spawn M cars)
+    killCars(3, 3, CarsPids, SleepTime, Width, Height).
 
 % function that kills the selected car and calls the loop back
-killCars(CarsPids, N, Width, Height) when length(CarsPids) > 1 ->
+killCars(NCarsToKill, NCarsToCreate, CarsPids, SleepTime, Width, Height) when length(CarsPids) > 1 ->
     % choose the index of one car to kill 
     CarIndexToKill = rand:uniform(length(CarsPids) - 1),
     {Left, [PidToKill|Right]} = lists:split(CarIndexToKill, CarsPids),
     io:format("Main killing ~p\n", [PidToKill]),
     exit(PidToKill, kill),
-    loop(N, Left ++ Right, Width, Height);
-killCars(CarsPids, N, Width, Height) when length(CarsPids) =< 1 ->
-    loop(N, CarsPids, Width, Height).
+    case NCarsToKill > 1 of
+        true -> killCars(NCarsToKill - 1, NCarsToCreate, Left ++ Right, SleepTime, Width, Height);
+        false ->
+            % spawn M cars
+            createCars(NCarsToCreate, CarsPids, Width, Height, SleepTime)
+    end;
+killCars(_, NCarsToCreate, CarsPids, SleepTime, Width, Height) when length(CarsPids) =< 1 ->
+    % spawn M cars
+    createCars(NCarsToCreate, CarsPids, Width, Height, SleepTime).
 
 % sleep function
 sleep(N) -> receive after N -> ok end.
