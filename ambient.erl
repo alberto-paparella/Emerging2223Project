@@ -23,8 +23,8 @@ ambient(Grid) ->
             end,
             ambient(Grid);
         %  Notifica da parte di detect che l'automobile sta parcheggiando.
-        {park, PID, X, Y, Ref} ->
-            % TODO: nel caso in cui due automobili arrivino contemporanemante al posteggio e inviino entrambe un messaggio park,
+        {park, PID, X, Y, _} -> %{park, PID, X, Y, Ref} ->
+            % Nel caso in cui due automobili arrivino contemporanemante al posteggio e inviino entrambe un messaggio park,
             % l'ambiente assegnerà il posteggio a quella arrivata per prima, killando la seconda automobile.
             case length([{A,B,C}||{A,B,C}<-maps:values(Grid), A =:= X, B =:=Y]) of
                 % Il booleano IsFree vale true sse il posteggio è libero.
@@ -38,7 +38,7 @@ ambient(Grid) ->
                     exit(PID, kill), ambient(Grid)
             end;
         %  Notifica da parte di detect che l'automobile sta lasciando il posteggio.
-        {leave, PID, Ref} ->
+        {leave, PID, _} -> %{leave, PID, Ref} ->
             UpdatedGrid = maps:remove(PID, Grid),
             {X,Y, MonitorRef} = maps:get(PID, Grid),
             demonitor(MonitorRef),
