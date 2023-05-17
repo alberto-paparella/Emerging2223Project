@@ -14,7 +14,7 @@ main() ->
     io:format("# Main started\n"),
     Width = 10, Height = 10,    % dimensioni della scacchiera
     NCarsToCreate = 6,          % numero di macchine presenti nella scacchiera
-    NCarsToKill = 3,            % numero di macchine da killare e spawnare a intervalli regolari
+    NCarsToKill = 1,            % numero di macchine da killare e spawnare a intervalli regolari
     SleepTime = 10000,          % intervallo di ms fra una kill/spawn e la successiva
     spawn(ambient, ambient, []),
     spawn(wellknown, wellknown, []),
@@ -52,5 +52,5 @@ kill_cars(_, NCarsToCreate, CarsPids, SleepTime, Width, Height) when length(Cars
     create_cars(NCarsToCreate, CarsPids, Width, Height, SleepTime, NCarsToCreate).
 
 %%% sleep/1
-% sospende l'esecuzione per N ms
+% Sospende l'esecuzione per N ms
 sleep(N) -> receive after N -> ok end.

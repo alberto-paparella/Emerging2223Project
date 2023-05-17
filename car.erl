@@ -61,29 +61,33 @@ friendship(StatePid, FRIENDSLIST) when FRIENDSLIST =:= [] ->
     StatePid ! {friendshipPid, self()},
     % Per inizializzare la lista di amici, la richiesta getFriends viene inviata all'attore wellknown.
     wellknown ! {getFriends, self(), StatePid, Ref},
-    receive 
-        {myFriends, PIDSLIST, Ref} -> makeFriends(StatePid, FRIENDSLIST, PIDSLIST)
+    receive
+        {myFriends, PIDSLIST, Ref} ->
+            makeFriends(StatePid, FRIENDSLIST, PIDSLIST)
     end;
 
 % Ripristino
 friendship(StatePid, FRIENDSLIST) when length(FRIENDSLIST) < 5 ->
-    % Chiede ad ogni attore nella FRIENDSLIST la lista dei suoi amici e ne fa l'unione, dopodichè sceglie da tale insieme i 5 attori da usare come amici.
+    % Chiede ad ogni attore nella FRIENDSLIST la lista dei suoi amici e ne fa l'unione,
+    % dopodichè sceglie da tale insieme i 5 attori da usare come amici.
     % Nota: aggiunge alla lista degli amici solo quelli che gli mancano per arrivare a 5, mantenendo i precedenti.
     getFriends(StatePid, FRIENDSLIST, FRIENDSLIST, []);
 
 % Default behaviour
 friendship(StatePid, FRIENDSLIST) ->
-    %io:format("Car (StatePid): ~p~n", [StatePid]),
-    % io:format("FRIENDSLIST of ~p: ~p~n", [StatePid, FRIENDSLIST]),
     receive
         {getFriends, PID1, PID2, Ref} ->
             PID1 ! {myFriends, FRIENDSLIST, Ref},
             % A seguito della ricezione di un messaggio getFriends, il ricevente può aggiungere alla sua lista di amici
             % il PID PID2 contenuto nel messaggio, sempre con l'obiettivo di mantenere una lista di 5 amici.
             % Nota: scegliamo di aggiungerlo dopo aver restituito myFriends in quanto verrebbe scartato dall'attore friendship mittente in ogni caso.
-            case (length(FRIENDSLIST) < 5) and (lists:member({PID1, PID2}, FRIENDSLIST)) of
-                true -> friendship(StatePid, FRIENDSLIST);
-                false -> friendship(StatePid, [{PID1, PID2} | FRIENDSLIST])
+            case (length(FRIENDSLIST) < 5) and not (lists:member({PID1, PID2}, FRIENDSLIST)) of
+                false -> friendship(StatePid, FRIENDSLIST);
+                true ->
+                    monitor(process, PID2),
+                    NewFRIENDSLIST = [{PID1, PID2} | FRIENDSLIST],
+                    render ! {friends, StatePid, NewFRIENDSLIST},
+                    friendship(StatePid, NewFRIENDSLIST)
             end;
         % Protocollo privato fra state e friendship della stessa automobile per permettere a state di ricevere la lista dei suoi amici.
         {getFriendsList, Ref} ->
@@ -93,44 +97,75 @@ friendship(StatePid, FRIENDSLIST) ->
         {'DOWN', Ref, process, Pid, _} ->
             io:format("Friendship of ~p: removing car ~p's friendship from friends because it died.\n", [StatePid, Pid]),
             demonitor(Ref),
-            NewFRIENDSLIST = [ Pids || {FPid, _} = Pids <- FRIENDSLIST, FPid /= Pid],
+            NewFRIENDSLIST = [ Pids || {_, SPid} = Pids <- FRIENDSLIST, SPid /= Pid],
+            render ! {friends, StatePid, NewFRIENDSLIST},
             friendship(StatePid, NewFRIENDSLIST)
-    end.
-friendship(askwellknown, StatePid, FRIENDSLIST) ->
-    Ref = make_ref(),
-    wellknown ! {getFriends, self(), StatePid, Ref},
-    receive
-        {myFriends, wellknownPIDSLIST, Ref} -> makeFriends(StatePid, FRIENDSLIST, wellknownPIDSLIST)
-    end.
+    end.    
 
-% qui ho tutti gli amici che mi servono, chiamo friendship
-makeFriends(StatePid, FRIENDSLIST, _) when length(FRIENDSLIST) =:= 5 -> friendship(StatePid, FRIENDSLIST);
-% qui ho più di 5 amici, ne elimino uno
-makeFriends(StatePid, [_|TL] = FRIENDSLIST, PIDSLIST) when length(FRIENDSLIST) > 5 ->
-    makeFriends(StatePid, TL, PIDSLIST);
-% qui ho meno di 5 amici ma ne ho da poter inserire
-makeFriends(StatePid, FRIENDSLIST, PIDSLIST) when length(PIDSLIST) > 0 ->
-    {NewFriendFriendship, NewFriendState} = lists:nth(rand:uniform(length(PIDSLIST)), PIDSLIST),
-    case ({NewFriendFriendship, NewFriendState} =:= {self(), StatePid}) or 
-            (lists:member({NewFriendFriendship, NewFriendState}, FRIENDSLIST)) of
-        true -> makeFriends(StatePid, FRIENDSLIST, lists:delete({NewFriendFriendship, NewFriendState},PIDSLIST));
-        false -> 
-            monitor(process, NewFriendState),
-            NewFriendshipList = [{NewFriendFriendship, NewFriendState} | FRIENDSLIST],
-            makeFriends(StatePid, NewFriendshipList, lists:delete({NewFriendFriendship, NewFriendState},PIDSLIST))
-    end;
-% qui ho finito gli amici da poter inserire ma non ne ho 5, chiedo a wellknown
-makeFriends(StatePid, FRIENDSLIST, _) -> friendship(askwellknown, StatePid, FRIENDSLIST).
+% Finchè la lista degli amici non contiene 5 amici, aggiunge casualmente un attore da PIDSLIST
+% diverso da sè stesso non ancora contenuto nella lista degli amici.
+makeFriends(StatePid, FRIENDSLIST, PIDSLIST) ->
+    % Nota: questo corrisponde a un ciclo DO-WHILE in quanto in questo punto sicuramente è necessario
+    % aggiungere almeno un attore alla lista.
+    % Questo ci permette di spostare il controllo all'interno e risparmiare una chiamata a ricorsiva
+    case length(PIDSLIST) > 0 of
+        true ->
+            % Aggiunge casualmente un attore da PIDSLIST diverso da sè stesso non ancora contenuto nella lista degli amici
+            {NewFriendFriendship, NewFriendState} = lists:nth(rand:uniform(length(PIDSLIST)), PIDSLIST),
+            case ({NewFriendFriendship, NewFriendState} =:= {self(), StatePid}) or
+                 (lists:member({NewFriendFriendship, NewFriendState}, FRIENDSLIST)) of
+                true -> makeFriends(StatePid, FRIENDSLIST, lists:delete({NewFriendFriendship, NewFriendState},PIDSLIST));
+                false ->
+                    monitor(process, NewFriendState),
+                    NewFRIENDSLIST = [{NewFriendFriendship, NewFriendState} | FRIENDSLIST],
+                    case (length(NewFRIENDSLIST) < 5)  of
+                        true -> makeFriends(StatePid, NewFRIENDSLIST, lists:delete({NewFriendFriendship, NewFriendState},PIDSLIST));
+                        false ->
+                            render ! {friends, StatePid, NewFRIENDSLIST},
+                            friendship(StatePid, NewFRIENDSLIST)
+                    end
+            end;
+        false ->
+            % Se arrivo qui FRIENDSLIST ha meno di 5 elementi ed ho provato tutti gli amici dei miei amici,
+            % oppure sono ancora in fase di inizializzazione; (ri-)chiedo a wellknown
+            Ref = make_ref(),
+            wellknown ! {getFriends, self(), StatePid, Ref},
+            receive
+                {myFriends, PIDSLIST2, Ref} ->
+                    makeFriends(StatePid, FRIENDSLIST, PIDSLIST2)
+            end
+    end.
 
 % Chiede ad ogni attore nella FRIENDSLIST la lista dei suoi amici e ne fa l'unione
-getFriends(StatePid, FRIENDS, [{Friendship, _}|TL] = FRIENDSLIST, NewFRIENDSLIST) when length(FRIENDSLIST) > 0 ->
-    Ref = make_ref(),
-    Friendship ! {getFriends, self(), StatePid, Ref},
-    receive
-        {myFriends, PIDSLIST, Ref} ->
-            getFriends(StatePid, FRIENDS, TL, lists:merge([NewFRIENDSLIST, PIDSLIST]))
-    end;
-getFriends(StatePid, FRIENDS, _, NewFRIENDSLIST) -> makeFriends(StatePid, FRIENDS, NewFRIENDSLIST).
+% - FRIENDSLIST è la mia lista degli amici
+% - TEMPLIST è la mia lista degli amici meno gli elementi che ho già controllato
+% - NewFRIENDSLIST è la lista di nuovi amici papabili (gli amici dei miei amici)
+% Alla fine cambia behaviour in make_friends
+getFriends(StatePid, FRIENDSLIST, TEMPLIST, NewFRIENDSLIST) ->
+    case length(TEMPLIST) > 0 of
+        true ->
+            Ref = make_ref(),
+            % {PIDF, PIDS}
+            lists:nth(1,tuple_to_list(lists:last(TEMPLIST))) ! {getFriends, self(), StatePid, Ref},
+            receive
+                {myFriends, PIDSLIST, Ref} ->
+                    getFriends(StatePid, FRIENDSLIST, lists:droplast(TEMPLIST), lists:merge([NewFRIENDSLIST, PIDSLIST]));
+                {getFriends, PID1, PID2, Ref2} ->
+                    PID1 ! {myFriends, FRIENDSLIST, Ref2},
+                    % A seguito della ricezione di un messaggio getFriends, il ricevente può aggiungere alla sua lista di amici
+                    % il PID PID2 contenuto nel messaggio, sempre con l'obiettivo di mantenere una lista di 5 amici.
+                    % Nota: scegliamo di aggiungerlo dopo aver restituito myFriends in quanto verrebbe scartato dall'attore friendship mittente in ogni caso.
+                    case (length(FRIENDSLIST) < 5) and not (lists:member({PID1, PID2}, FRIENDSLIST)) of
+                        false -> getFriends(StatePid, FRIENDSLIST, lists:delete({PID1, PID2}, TEMPLIST), NewFRIENDSLIST);
+                        true ->
+                            monitor(process, PID2),
+                            NewFRIENDSLIST = [{PID1, PID2} | FRIENDSLIST],
+                            render ! {friends, StatePid, NewFRIENDSLIST},
+                            friendship(StatePid, NewFRIENDSLIST)
+                    end
+            end;
+        false -> makeFriends(StatePid, FRIENDSLIST, NewFRIENDSLIST)
+    end.
 
 %%% detect
 % Un attore "detect" che si occupa di muovere l'automobile sulla scacchiera, interagendo con l'attore "ambient" per fare sensing dello stato
@@ -302,7 +337,8 @@ moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
             StatePid ! {updateMyPosition, {X, UltimateY}}
     end.
 
-% Funzione di sleep
+%%% sleep/1
+% Sospende l'esecuzione per N ms
 sleep(N) -> receive after N -> ok end.
 
 %%% state
