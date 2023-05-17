@@ -1,6 +1,6 @@
 % Un attore "render" che permette il debugging raccogliendo informazioni dagli altri attori per poterle visualizzare.
 % Per permettere il debugging, dovrete implementare un ultimo attore "render", il cui PID viene registrato associandolo
-% all'atomo rendere che si occupa di rappresentare lo stato del sistema di attori.
+% all'atomo render e che si occupa di rappresentare lo stato del sistema di attori.
 % In particolare il "render" visualizza la griglia, indicando la posizione di ogni automobile, il suo stato (parcheggiata o meno),
 % quale sia il posteggio obiettivo di ogni automobile e la lista di amici di ogni automobile.
 % Queste informazioni vanno comunicate all'attore render dagli altri attori tramite i seguenti messaggi:

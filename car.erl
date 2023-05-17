@@ -1,12 +1,15 @@
 % Ogni automobile è rappresentata dal seguente sotto-sistema di attori:
-% - Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro.
-% - Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori, integrandone di nuovi nel caso in cui il numero scenda.
-% - Un attore "state" che si preoccupa di mantenere il modello interno dell'ambiente e le coordinate del posteggio obiettivo.
-%   In pratica l'attore registra per ogni cella l'ultima informazione giunta in suo possesso (posteggio libero/occupato/nessuna informazione)
-%   e propaga le nuove informazione ottenute agli amici (protocollo di gossiping). Inoltre cambia il posteggio obiettivo quando necessario
-%   (es. quando scopre che il posteggio è ora occupato).
-% - Un attore "detect" che si occupa di muovere l'automobile sulla scacchiera, interagendo con l'attore "ambient" per fare sensing dello stato
-%   di occupazione dei posteggi.
+% - Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli
+%   nel caso di fallimento di uno di loro.
+% - Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di
+%   attori, integrandone di nuovi nel caso in cui il numero scenda.
+% - Un attore "state" che si preoccupa di mantenere il modello interno dell'ambiente
+%   e le coordinate del posteggio obiettivo. In pratica l'attore registra per ogni cella
+%   l'ultima informazione giunta in suo possesso (posteggio libero/occupato/nessuna informazione)
+%   e propaga le nuove informazione ottenute agli amici (protocollo di gossiping).
+%   Inoltre cambia il posteggio obiettivo quando necessario (es. quando scopre che il posteggio è ora occupato).
+% - Un attore "detect" che si occupa di muovere l'automobile sulla scacchiera, interagendo
+%   con l'attore "ambient" per fare sensing dello stato di occupazione dei posteggi.
 
 -module(car).
 -export([main/4, friendship/2, detect/4, state/1]).
@@ -14,22 +17,18 @@
 %%% main
 % Un attore "main" che lancia gli altri attori ed è responsabile di ri-crearli nel caso di fallimento di uno di loro.
 
-% Inizializzazione
+%% main/4
+% Inizializzazione (lancia gli attori state, friendship e detect).
 main(X, Y, GridWidth, GridHeight) ->
-    % link ad ambient
     link(whereis(ambient)),
     StatePid = spawn_link(?MODULE, state, [{X, Y}]),
     FriendshipPid = spawn_link(?MODULE, friendship, [StatePid, []]),    
     spawn_link(?MODULE, detect, [StatePid, FriendshipPid, GridWidth, GridHeight]),
-    % DEBUG: help to kill cars
-    % io:format("State ~p\n", [StatePid]),
-    % io:format("Friend ~p\n", [FriendshipPid]),
-    % io:format("Detect ~p\n", [DetectPid]),
     process_flag(trap_exit, true),
     main(whereis(ambient), GridWidth, GridHeight).
 
-% Monitoring degli attori figli e ricreazione della car in caso di fallimenti
-% main({StatePid, StateRef}, {FriendshipPid, FriendshipRef}, {DetectPid, DetectRef}, GridWidth, GridHeight) ->
+%% main/3
+% Monitora gli attori figli e li ricrea nel caso nel caso di fallimento di uno di loro.
 main(AmbientPid, GridWidth, GridHeight) ->
     receive
         {'EXIT', AmbientPid, Reason} -> 
@@ -43,16 +42,25 @@ main(AmbientPid, GridWidth, GridHeight) ->
     end.
 
 %%% friendship
-% Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori, integrandone di nuovi nel caso in cui il numero scenda.
+% Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori,
+% integrandone di nuovi nel caso in cui il numero scenda.
 %%% Protocollo per la Friendship
-% Il protocollo permette di chiedere agli amici la lista dei loro amici per poi farne l'unione e scegliere da tale insieme i 5 attori da usare come amici.
-% Viene implementato dagli attori "friendship" e, per quanto riguarda la sola risposta, dall'attore speciale wellknown.
-%  - {getFriends, PID1, PID2, Ref} inviato da un attore "friendship" (il cui PID è PID1) di un'automobile all'attore "friendship" di un'altra automobile.
-%    PID2 è il PID dell'attore "state" dell'automobile mittente. Ref è una nuova reference che identifica la richiesta
-%  - {myFriends, PIDSLIST, Ref} è la risposta al messaggio precedente, inviata al PID PID1 contenuto nel messaggio di richiesta. Ref è la reference ricevuta nella richiesta.
-%    PIDSLIST è la lista di coppie {PIDF,PIDS} degli amici, dove PIDF è il PID dell'attore "friendship" e PIDS quello dell'attore "state".
-% Per inizializzare la lista di amici o qual'ora gli amici degli amici non siano sufficienti a ripristinare l'insieme di 5 amici, la richiesta getFriends viene inviata all'attore wellknown.
+% Il protocollo permette di chiedere agli amici la lista dei loro amici per poi farne
+% l'unione e scegliere da tale insieme i 5 attori da usare come amici.
+% Viene implementato dagli attori "friendship" e, per quanto riguarda la sola risposta,
+% dall'attore speciale wellknown.
+%  - {getFriends, PID1, PID2, Ref} inviato da un attore "friendship" (il cui PID è PID1)
+%    di un'automobile all'attore "friendship" di un'altra automobile.
+%    PID2 è il PID dell'attore "state" dell'automobile mittente.
+%    Ref è una nuova reference che identifica la richiesta.
+%  - {myFriends, PIDSLIST, Ref} è la risposta al messaggio precedente, inviata al PID PID1
+%    contenuto nel messaggio di richiesta. Ref è la reference ricevuta nella richiesta.
+%    PIDSLIST è la lista di coppie {PIDF,PIDS} degli amici, dove PIDF è il PID dell'attore
+%    "friendship" e PIDS quello dell'attore "state".
+% Per inizializzare la lista di amici o qualora gli amici degli amici non siano sufficienti
+% a ripristinare l'insieme di 5 amici, la richiesta getFriends viene inviata all'attore wellknown.
 
+%% friendship/2
 % Inizializzazione
 friendship(StatePid, FRIENDSLIST) when FRIENDSLIST =:= [] ->
     link(StatePid),
@@ -89,7 +97,8 @@ friendship(StatePid, FRIENDSLIST) ->
                     render ! {friends, StatePid, NewFRIENDSLIST},
                     friendship(StatePid, NewFRIENDSLIST)
             end;
-        % Protocollo privato fra state e friendship della stessa automobile per permettere a state di ricevere la lista dei suoi amici.
+        % Protocollo privato fra state e friendship della stessa automobile per
+        % permettere a state di ricevere la lista dei suoi amici.
         {getFriendsList, Ref} ->
             StatePid ! {friendsList, FRIENDSLIST, Ref},
             friendship(StatePid, FRIENDSLIST);
@@ -202,7 +211,7 @@ detect(StatePid, GridWidth, GridHeight) ->
     NewGoalRef = make_ref(),
     StatePid ! {newGoal, self(), {GoalX, GoalY}, NewGoalRef},
     receive
-        {isGoalFree, IsGoalFree, NewGoalRef} ->
+        {goalFree, IsGoalFree, NewGoalRef} ->
             case IsGoalFree of
                 true -> 
                     % Notifico render sulla scelta del nuovo posteggio obiettivo
@@ -219,7 +228,7 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
     IsGoalFreeRef = make_ref(),
     StatePid ! {isGoalFree, self(), IsGoalFreeRef},
     receive
-        {goalFree, IsGoalFreeRef, IsGoalFree} ->
+        {goalFree, IsGoalFree, IsGoalFreeRef} ->
             case IsGoalFree of
                 true ->
                     move(StatePid, GridWidth, GridHeight, GoalX, GoalY),
@@ -238,15 +247,14 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                                 % Il booleano IsFree vale true sse il posteggio è libero.
                                 {status, IsFreeRef, IsFree} ->
                                     % In seguito alla ricezione del messaggio status, il messaggio viene condiviso con l'attore "state" tramite un protocollo privato.
-                                    StateRef = make_ref(),
-                                    StatePid ! {status, self(), {X, Y}, IsFree, StateRef},
+                                    StatePid ! {status, {X, Y}, IsFree},
                                     % A questo punto, l'attore state condivide se la cella obiettivo è ancora disponibile, e nel caso contrario scelgo un nuovo obiettivo.
                                     % Tramite un protocollo privato l'attore "detect" viene informato dall'attore "state" quando il parcheggio obiettivo diventa
                                     % noto essere occupato, al fine di cambiare posteggio obiettivo scegliendone uno ritenuto libero.
                                     
-                                    case IsFree of
-                                        false -> detect(StatePid, GridWidth, GridHeight);
-                                        true -> 
+                                    % case IsFree of
+                                    %     false -> detect(StatePid, GridWidth, GridHeight);
+                                    %     true -> 
                                             % Nel caso in cui sia stato raggiunto il posteggio obiettivo e questo sia libero:
                                             %  - {park, PID, X, Y, Ref} viene invato all'attore "ambient" per dire che l'automobile sta parcheggiando. Ref è una nuova reference.
                                             case (X =:= GoalX) and (Y =:= GoalY) of
@@ -264,7 +272,7 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                                                     sleep(2000),
                                                     detect(StatePid, GridWidth, GridHeight, GoalX, GoalY)
                                             end
-                                    end
+                                    %end
                             end
                     end;
                 false ->
@@ -342,118 +350,103 @@ moveY(Y, NewGoalY, X, GridHeight, StatePid) ->
 sleep(N) -> receive after N -> ok end.
 
 %%% state
-% Un attore "state" che si preoccupa di mantenere il modello interno dell'ambiente e le coordinate del posteggio obiettivo.
-% In pratica l'attore registra per ogni cella l'ultima informazione giunta in suo possesso (posteggio libero/occupato/nessuna informazione)
-% e propaga le nuove informazione ottenute agli amici (protocollo di gossiping). Inoltre cambia il posteggio obiettivo quando necessario
-% (es. quando scopre che il posteggio è ora occupato).
+% Un attore "state" che si preoccupa di mantenere il modello interno dell'ambiente e le coordinate
+% del posteggio obiettivo. In pratica l'attore registra per ogni cella l'ultima informazione giunta
+% in suo possesso (posteggio libero/occupato/nessuna informazione) e propaga le nuove informazioni
+% ottenute agli amici (protocollo di gossiping). Inoltre cambia il posteggio obiettivo quando
+% necessario (es. quando scopre che il posteggio è ora occupato).
 %%% Protocollo di Gossiping
-% L'attore "state" mantiene il modello del mondo, ricevendo update sia dall'attore "detect" (tramite messaggi status),
-% sia dagli altri attori "state", via messaggi notifyStatus descritti fra poco.
+% L'attore "state" mantiene il modello del mondo, ricevendo update sia dall'attore "detect" (tramite
+% messaggi status), sia dagli altri attori "state", via messaggi notifyStatus descritti fra poco.
 % Quando l'update comporta una modifica del modello interno (es. un posteggio che si riteneva essere occupato ora
 % diventa libero, o viceversa), tale cambiamento viene notificato a tutti gli amici tramite messaggi notifyStatus:
 %  - {notifyStatus, X, Y, IsFree}
 % Un protocollo privato permette all'attore "state" di ottenere la lista di amici correnti dall'attore "friendship".
 % Il protocollo può essere ottimizzato per trasferire la lista solamente al cambiamento di questa.
 
-% Inizializzatione (nel nostro modello state mantiene informazioni anche sulla posizione attuale dell'automobile)
+%% state/2
+% Inizializzatione (nel nostro modello state mantiene informazioni anche sulla posizione attuale dell'automobile).
 state({MyX, MyY}) ->
-    % Posteggio libero = true, occupato = false, nessuna informazione = none (non è presente nella Map)
+    % Posteggio libero = true, occupato = false, nessuna informazione = none (non è presente nella Map).
     Grid = #{},
-    % Per il futuro algoritmo di gossiping, state deve conoscere il PID di frienship in modo che possano comunicare
+    % Per il futuro algoritmo di gossiping, state deve conoscere il PID di friendship in modo che possano comunicare.
     receive
         {friendshipPid, PID} -> state(Grid, {MyX, MyY}, PID)
     end.
 
-% Si mette in attesa della ricezione di un (nuovo) posteggio obiettivo da parte di detect
+%% state/3
+% Si mette in attesa della ricezione di un (nuovo) posteggio obiettivo da parte di detect.
 state(Grid, {MyX, MyY}, FriendshipPid) ->
     receive
         {newGoal, PID, {GoalX, GoalY}, Ref} ->
-            % Controllo se è libero
-            case maps:get({GoalX, GoalY}, Grid, none) of
-                % Se non ha nessuna informazione per il momento si comporta come se fosse libera
-                none -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
-                true -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
-                false ->
-                    % Chiedo a detect un nuovo posteggio libero e mi metto in attesa di riceverlo
-                    PID ! {isGoalFree, false, Ref},
-                    state(Grid, {MyX, MyY}, FriendshipPid)
-            end
-            
+            is_goal_free(PID, Ref, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
     end.
 
-% Default behaviour
-state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) -> 
+%% state/4
+% Default behaviour.
+state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) ->
     receive
+        % Richiesta da parte di "detect" sulla posizione dell'automobile sulla scacchiera.
         {getMyPosition, PID, Ref} -> 
             PID ! {myPosition, {MyX, MyY}, Ref},
             state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+        % Richiesta da parte di "detect" di aggiornare la posizione dell'automobile con "{NewX, NewY}".
         {updateMyPosition, {NewX, NewY}} -> 
             state(Grid, {NewX, NewY}, {GoalX, GoalY}, FriendshipPid);
+        % Richiesta da parte di "detect" di aggiornare la cella obiettivo con "{NewGoalX, NewGoalY}".
         {newGoal, PID, {NewGoalX, NewGoalY}, Ref} ->
-            % Controllo se è libero
-            case maps:get({NewGoalX, NewGoalY}, Grid, none) of
-                % Se non ha nessuna informazione per il momento si comporta come se fosse libera
-                none -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {NewGoalX, NewGoalY}, FriendshipPid);
-                true -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {NewGoalX, NewGoalY}, FriendshipPid);
-                false ->
-                    % Chiedo a detect un nuovo posteggio libero e mi metto in attesa di riceverlo
-                    PID ! {isGoalFree, false, Ref},
-                    state(Grid, {MyX, MyY}, FriendshipPid)
-            end;
+            is_goal_free(PID, Ref, Grid, {MyX, MyY}, {NewGoalX, NewGoalY}, FriendshipPid);
+        % Richiesta da parte di "detect" se la cella obiettivo è libera o meno.
         {isGoalFree, PID, Ref} ->
-            case maps:get({GoalX, GoalY}, Grid, none) of
-                % Se non ha nessuna informazione per il momento si comporta come se fosse libera
-                none -> PID ! {goalFree, Ref, true}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
-                true -> PID ! {goalFree, Ref, true}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
-                false ->
-                    % Chiedo a detect un nuovo posteggio libero e mi metto in attesa di riceverlo
-                    PID ! {goalFree, Ref, false},
-                    state(Grid, {MyX, MyY}, FriendshipPid)
-            end;
-        {status, PID, {X, Y}, IsFree, Ref} ->
-            % Questa informazione modifica l'ambiente interno?
-            case maps:get({X, Y}, Grid, true) of
-                OldValue ->
-                    case OldValue =:= IsFree of
-                        true -> PID ! {isGoalFree, true, Ref}, state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
-                        false ->
-                            % Chiede a friendship la lista dei suoi amici e invia notifyStatus ad ognuno di loro (gossiping)
-                            GetFriendsListRef = make_ref(),
-                            FriendshipPid ! {getFriendsList, GetFriendsListRef},
-                            receive
-                                {friendsList, FRIENDSLIST, GetFriendsListRef} ->
-                                    notifyFriends(FRIENDSLIST, {X, Y}, IsFree)
-                            end,
-                            NewGrid = maps:put({X, Y}, IsFree, Grid),
-                            state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)                            
-                    end
-            end;
+            is_goal_free(PID, Ref, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+        % Notifica da parte di "detect" sullo stato della cella su cui si trova l'automobile.
+        {status, {X, Y}, IsFree} ->
+            status_update({X, Y}, IsFree, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
         {notifyStatus, {X, Y}, IsFree} ->
-            % Questa informazione modifica l'ambiente interno?
-            case maps:get({X, Y}, Grid, none) of
-                OldValue ->
-                    case OldValue =:= IsFree of
-                        true -> state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
-                        false ->
-                            % Chiede a friendship la lista dei suoi amici e invia notifyStatus ad ognuno di loro (gossiping)
-                            GetFriendsListRef = make_ref(),
-                            FriendshipPid ! {getFriendsList, GetFriendsListRef},
-                            receive
-                                {friendsList, FRIENDSLIST, GetFriendsListRef} ->
-                                    notifyFriends(FRIENDSLIST, {X, Y}, IsFree)
-                            end,
-                            NewGrid = maps:put({X, Y}, IsFree, Grid),
-                            % Se il goal non è più free, detect se ne accorge nel prossimo istante
-                            state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
+            status_update({X, Y}, IsFree, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
+    end.
+
+% Controlla se il posteggio obiettivo è occupato o meno; in caso sia occupato avvisa
+% "detect" e si mette in attesa di ricevere un nuovo obiettivo, altrimenti notifica
+% che è libero e cambia behaviour in quella di default.
+is_goal_free(DetectPid, Ref, Grid, {X, Y}, {GoalX, GoalY}, FriendshipPid) ->
+    % Controlla se la cella è libera.
+    case maps:get({GoalX, GoalY}, Grid, none) of
+        % Se non ha nessuna informazione per il momento si comporta come se fosse libera.
+        none -> DetectPid ! {goalFree, true, Ref}, state(Grid, {X, Y}, {GoalX, GoalY}, FriendshipPid);
+        true -> DetectPid ! {goalFree, true, Ref}, state(Grid, {X, Y}, {GoalX, GoalY}, FriendshipPid);
+        false ->
+            % Chiede a detect un nuovo posteggio libero e si mette in attesa di riceverlo.
+            DetectPid ! {goalFree, false, Ref},
+            state(Grid, {X, Y}, FriendshipPid)
+    end.
+
+% Controlla se la nuova informazione relativa alla cella {X, Y} modifica l'ambiente interno
+% e nel caso propaga questa informazione agli amici tramite il protocollo di gossiping.
+status_update({X, Y}, IsFree, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) ->
+    % Questa informazione modifica l'ambiente interno?
+    case maps:get({X, Y}, Grid, none) of
+        OldValue ->
+            case OldValue =:= IsFree of
+                true -> state(Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+                false ->
+                    % Chiede a friendship la lista dei suoi amici e invia notifyStatus ad ognuno di loro (gossiping).
+                    GetFriendsListRef = make_ref(),
+                    FriendshipPid ! {getFriendsList, GetFriendsListRef},
+                    receive
+                        {friendsList, FRIENDSLIST, GetFriendsListRef} ->
+                            notify_friends(FRIENDSLIST, {X, Y}, IsFree, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
                     end
             end
     end.
 
-% Notifica gli amici nella lista degli amici
-notifyFriends(FRIENDSLIST, {X, Y}, IsFree) ->
+% Notifica gli amici nella lista degli amici in maniera ricorsiva ed alla fine aggiorna l'ambiente interno.
+notify_friends(FRIENDSLIST, {X, Y}, IsFree, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid) ->
     case length(FRIENDSLIST) > 0 of
         true ->
             lists:last(tuple_to_list(lists:last(FRIENDSLIST))) ! {notifyStatus, {X, Y}, IsFree},
-            notifyFriends(lists:droplast(FRIENDSLIST), {X, Y}, IsFree);
-        false -> done
+            notify_friends(lists:droplast(FRIENDSLIST), {X, Y}, IsFree, Grid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid);
+        false ->
+            NewGrid = maps:put({X, Y}, IsFree, Grid),
+            state(NewGrid, {MyX, MyY}, {GoalX, GoalY}, FriendshipPid)
     end.
