@@ -22,6 +22,8 @@ renderLoop() ->
     renderLoop().
 
 render(W, H) -> 
+    register(render, self()),
+    io:format("# Render actor created and registered to 'render' atom with pid ~p\n", [self()]),
     spawn_link(?MODULE, renderLoop, []),
     render(#{}, W, H).
 render(CarsPositionsMap, W, H) ->

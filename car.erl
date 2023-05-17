@@ -20,7 +20,7 @@ main(X, Y, GridWidth, GridHeight) ->
     link(whereis(ambient)),
     StatePid = spawn_link(?MODULE, state, [{X, Y}]),
     FriendshipPid = spawn_link(?MODULE, friendship, [StatePid, []]),    
-    DetectPid = spawn_link(?MODULE, detect, [StatePid, FriendshipPid, GridWidth, GridHeight]),
+    spawn_link(?MODULE, detect, [StatePid, FriendshipPid, GridWidth, GridHeight]),
     % DEBUG: help to kill cars
     % io:format("State ~p\n", [StatePid]),
     % io:format("Friend ~p\n", [FriendshipPid]),
@@ -46,12 +46,12 @@ main(AmbientPid, GridWidth, GridHeight) ->
 % Un attore "friendship" che si preoccupa di mantenere 5 attori nella lista di attori, integrandone di nuovi nel caso in cui il numero scenda.
 %%% Protocollo per la Friendship
 % Il protocollo permette di chiedere agli amici la lista dei loro amici per poi farne l'unione e scegliere da tale insieme i 5 attori da usare come amici.
-% Viene implementato dagli attori "friendship" e, per quanto riguarda la sola risposta, dall'attore speciale wellKnown.
+% Viene implementato dagli attori "friendship" e, per quanto riguarda la sola risposta, dall'attore speciale wellknown.
 %  - {getFriends, PID1, PID2, Ref} inviato da un attore "friendship" (il cui PID è PID1) di un'automobile all'attore "friendship" di un'altra automobile.
 %    PID2 è il PID dell'attore "state" dell'automobile mittente. Ref è una nuova reference che identifica la richiesta
 %  - {myFriends, PIDSLIST, Ref} è la risposta al messaggio precedente, inviata al PID PID1 contenuto nel messaggio di richiesta. Ref è la reference ricevuta nella richiesta.
 %    PIDSLIST è la lista di coppie {PIDF,PIDS} degli amici, dove PIDF è il PID dell'attore "friendship" e PIDS quello dell'attore "state".
-% Per inizializzare la lista di amici o qual'ora gli amici degli amici non siano sufficienti a ripristinare l'insieme di 5 amici, la richiesta getFriends viene inviata all'attore wellKnown.
+% Per inizializzare la lista di amici o qual'ora gli amici degli amici non siano sufficienti a ripristinare l'insieme di 5 amici, la richiesta getFriends viene inviata all'attore wellknown.
 
 % Inizializzazione
 friendship(StatePid, FRIENDSLIST) when FRIENDSLIST =:= [] ->
@@ -59,8 +59,8 @@ friendship(StatePid, FRIENDSLIST) when FRIENDSLIST =:= [] ->
     Ref = make_ref(),
     % Per il futuro algoritmo di gossiping, friendship deve comunicare il suo PID a state in modo che possano comunicare.
     StatePid ! {friendshipPid, self()},
-    % Per inizializzare la lista di amici, la richiesta getFriends viene inviata all'attore wellKnown.
-    wellKnown ! {getFriends, self(), StatePid, Ref},
+    % Per inizializzare la lista di amici, la richiesta getFriends viene inviata all'attore wellknown.
+    wellknown ! {getFriends, self(), StatePid, Ref},
     receive 
         {myFriends, PIDSLIST, Ref} -> makeFriends(StatePid, FRIENDSLIST, PIDSLIST)
     end;
@@ -96,11 +96,11 @@ friendship(StatePid, FRIENDSLIST) ->
             NewFRIENDSLIST = [ Pids || {FPid, _} = Pids <- FRIENDSLIST, FPid /= Pid],
             friendship(StatePid, NewFRIENDSLIST)
     end.
-friendship(askWellKnown, StatePid, FRIENDSLIST) ->
+friendship(askwellknown, StatePid, FRIENDSLIST) ->
     Ref = make_ref(),
-    wellKnown ! {getFriends, self(), StatePid, Ref},
+    wellknown ! {getFriends, self(), StatePid, Ref},
     receive
-        {myFriends, WellKnownPIDSLIST, Ref} -> makeFriends(StatePid, FRIENDSLIST, WellKnownPIDSLIST)
+        {myFriends, wellknownPIDSLIST, Ref} -> makeFriends(StatePid, FRIENDSLIST, wellknownPIDSLIST)
     end.
 
 % qui ho tutti gli amici che mi servono, chiamo friendship
@@ -120,7 +120,7 @@ makeFriends(StatePid, FRIENDSLIST, PIDSLIST) when length(PIDSLIST) > 0 ->
             makeFriends(StatePid, NewFriendshipList, lists:delete({NewFriendFriendship, NewFriendState},PIDSLIST))
     end;
 % qui ho finito gli amici da poter inserire ma non ne ho 5, chiedo a wellknown
-makeFriends(StatePid, FRIENDSLIST, _) -> friendship(askWellKnown, StatePid, FRIENDSLIST).
+makeFriends(StatePid, FRIENDSLIST, _) -> friendship(askwellknown, StatePid, FRIENDSLIST).
 
 % Chiede ad ogni attore nella FRIENDSLIST la lista dei suoi amici e ne fa l'unione
 getFriends(StatePid, FRIENDS, [{Friendship, _}|TL] = FRIENDSLIST, NewFRIENDSLIST) when length(FRIENDSLIST) > 0 ->

@@ -6,6 +6,8 @@
 -export([ambient/0]).
 
 ambient() ->
+    register(ambient, self()),
+    io:format("# Ambient actor created and registered to 'ambient' atom with pid ~p\n", [self()]),
     % Grid è una mappa #{Pid -> {X, Y, MonitorRef}} per ogni macchina parcheggiata
     % Se non vi è un elemento di valore {X, Y, Ref}, allora quella cella è libera
     Grid = #{},
