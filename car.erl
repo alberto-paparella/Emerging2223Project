@@ -170,9 +170,9 @@ get_friends(StatePid, FRIENDSLIST, TEMPLIST, NewFRIENDSLIST) ->
                         false -> get_friends(StatePid, FRIENDSLIST, lists:delete({PID1, PID2}, TEMPLIST), NewFRIENDSLIST);
                         true ->
                             monitor(process, PID2),
-                            NewFRIENDSLIST = [{PID1, PID2} | FRIENDSLIST],
-                            render ! {friends, StatePid, NewFRIENDSLIST},
-                            friendship(StatePid, NewFRIENDSLIST)
+                            UltimateFRIENDSLIST = [{PID1, PID2} | FRIENDSLIST],
+                            render ! {friends, StatePid, UltimateFRIENDSLIST},
+                            friendship(StatePid, UltimateFRIENDSLIST)
                     end
             end;
         false -> make_friends(StatePid, FRIENDSLIST, NewFRIENDSLIST)
@@ -266,16 +266,20 @@ detect(StatePid, GridWidth, GridHeight, GoalX, GoalY) ->
                                     %    che l'automobile sta parcheggiando. Ref è una nuova reference.
                                     case (X =:= GoalX) and (Y =:= GoalY) of
                                         true ->
-                                            ParkRef = make_ref(),
-                                            ambient ! {park, StatePid, X, Y, ParkRef},
-                                            % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
-                                            StatePid ! {status, self(), {X, Y}, false},
-                                            %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore
-                                            % "ambient" per dire che l'automobile sta lasciando il posteggio. La reference contenuta
-                                            % nel messaggio deve essere identica a quella del messaggio precedente.
-                                            sleep(rand:uniform(5000)),
-                                            ambient ! {leave, StatePid, ParkRef},
-                                            detect(StatePid, GridWidth, GridHeight);
+                                            case IsFree of 
+                                                true ->
+                                                    ParkRef = make_ref(),
+                                                    ambient ! {park, StatePid, X, Y, ParkRef},
+                                                    % Notifica status che la cella è ora occupata (in modo da poterlo condividere durante il gossiping).
+                                                    StatePid ! {status, self(), {X, Y}, false},
+                                                    %  - {leave, PID, Ref} viene inviato dopo 1-5s (valore scelto casualmente) all'attore
+                                                    % "ambient" per dire che l'automobile sta lasciando il posteggio. La reference contenuta
+                                                    % nel messaggio deve essere identica a quella del messaggio precedente.
+                                                    sleep(rand:uniform(5000)),
+                                                    ambient ! {leave, StatePid, ParkRef},
+                                                    detect(StatePid, GridWidth, GridHeight);
+                                                false -> detect(StatePid,  GridWidth, GridHeight)
+                                            end;
                                         false ->
                                             sleep(2000),
                                             detect(StatePid, GridWidth, GridHeight, GoalX, GoalY)

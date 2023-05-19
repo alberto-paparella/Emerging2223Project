@@ -51,7 +51,7 @@ ambient(Grid) ->
             ambient(UpdatedGrid);
         % Notifica che un'automobile parcheggiata è morta
         {'DOWN', Ref, process, Pid, Reason} ->
-            io:format("Ambient demonitoring parked car ~p. Reason: ~p)\n", [Pid, Reason]),
+            io:format("Ambient demonitoring parked car ~p. Reason: ~p\n", [Pid, Reason]),
             demonitor(Ref),
             UpdatedGrid = maps:remove(Pid, Grid),
             ambient(UpdatedGrid);
